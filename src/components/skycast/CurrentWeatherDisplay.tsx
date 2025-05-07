@@ -1,9 +1,8 @@
-
 "use client";
 import type { FC } from 'react';
 import { useState, useEffect } from 'react';
 import type { CurrentWeather } from '@/services/weather';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import WeatherIcon from './WeatherIcon';
 import { Droplets, Wind as WindIcon, Umbrella, Clock } from 'lucide-react';
 
@@ -22,33 +21,47 @@ interface CurrentWeatherDisplayProps {
 }
 
 const CurrentWeatherDisplay: FC<CurrentWeatherDisplayProps> = ({ weather, location }) => {
-  const [currentTime, setCurrentTime] = useState<string | null>(null);
+  const [searchedLocationTime, setSearchedLocationTime] = useState<string | null>(null);
+  const [londonTime, setLondonTime] = useState<string | null>(null);
 
   useEffect(() => {
-    const updateClock = () => {
+    const updateClocks = () => {
+      // Update searched location's time
       try {
-        const timeString = new Date().toLocaleTimeString('en-US', {
+        const searchedTime = new Date().toLocaleTimeString('en-US', {
           timeZone: location.timezone,
           hour: '2-digit',
           minute: '2-digit',
         });
-        setCurrentTime(timeString);
+        setSearchedLocationTime(searchedTime);
       } catch (error) {
-        console.warn(`Invalid timezone: ${location.timezone}. Defaulting to local time.`);
-        // Fallback to user's local time if timezone is invalid
-         const timeString = new Date().toLocaleTimeString('en-US', {
+        console.warn(`Invalid timezone for searched location: ${location.timezone}. Defaulting to user's local time for searched location display.`);
+        const fallbackTime = new Date().toLocaleTimeString('en-US', {
           hour: '2-digit',
           minute: '2-digit',
         });
-        setCurrentTime(timeString);
+        setSearchedLocationTime(fallbackTime);
+      }
+
+      // Update London time
+      try {
+        const londonTimeString = new Date().toLocaleTimeString('en-US', {
+          timeZone: 'Europe/London',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        setLondonTime(londonTimeString);
+      } catch (error) {
+        console.error(`Error setting London time: ${error}. This should not happen with a valid hardcoded timezone.`);
+        setLondonTime('N/A'); // Fallback for London time
       }
     };
 
-    updateClock(); // Initial call
-    const intervalId = setInterval(updateClock, 60000); // Update every minute
+    updateClocks(); // Initial call
+    const intervalId = setInterval(updateClocks, 60000); // Update every minute
 
     return () => clearInterval(intervalId);
-  }, [location.timezone]);
+  }, [location.timezone]); // Re-run if the location's timezone changes
 
   const locationFullName = [location.name, location.county, location.country].filter(Boolean).join(', ');
 
@@ -58,14 +71,20 @@ const CurrentWeatherDisplay: FC<CurrentWeatherDisplayProps> = ({ weather, locati
         <CardTitle className="text-3xl font-bold">
           {locationFullName}
         </CardTitle>
-        <div className="flex items-center justify-center space-x-2 text-lg text-muted-foreground">
-           {currentTime && <Clock size={18} className="text-primary" />}
-           <span>{currentTime || 'Loading time...'}</span>
-           <span>&bull;</span>
-           <span>{weather.conditions}</span>
+        <div className="text-md text-muted-foreground mt-1 space-y-0.5">
+          <div className="flex items-center justify-center space-x-1">
+            <Clock size={16} className="text-primary/80" />
+            <span>London Time: {londonTime || 'Loading...'}</span>
+          </div>
+          <div className="flex items-center justify-center space-x-1">
+            <Clock size={16} className="text-primary" />
+            <span>{location.name} Time: {searchedLocationTime || 'Loading...'}</span>
+            <span className="mx-1">&bull;</span>
+            <span>{weather.conditions}</span>
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="flex flex-col items-center space-y-2 p-6">
+      <CardContent className="flex flex-col items-center space-y-2 p-6 pt-2">
         <div className="flex items-center space-x-4">
           <WeatherIcon condition={weather.conditions} size={80} className="text-primary drop-shadow-lg" />
           <div>
