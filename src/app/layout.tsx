@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: 'SkyCast Weather App',
-  description: 'Get current weather and 10-day forecasts with SkyCast.',
+  description: 'Get current weather and forecasts with SkyCast, powered by OpenWeatherMap.',
 };
 
 export default function RootLayout({

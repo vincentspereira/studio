@@ -1,8 +1,16 @@
 /**
- * @fileOverview Weather service for fetching mock weather data.
- * All data provided by this service is for demonstration purposes and is not real-time or actual weather data.
- * Temperatures are in Celsius.
+ * @fileOverview Weather service for fetching weather data from OpenWeatherMap.org.
+ * Temperatures are in Celsius. Wind speed in mph. Precipitation probability in %.
  */
+
+import { formatInTimeZone } from 'date-fns-tz';
+
+// IMPORTANT: In a production application, API keys should be stored in environment variables
+// and not hardcoded. For this exercise, the key is embedded directly.
+const API_KEY = "adeaef8cfe7858f48349f3f511042832";
+const GEO_BASE_URL = "https://api.openweathermap.org/geo/1.0";
+const WEATHER_BASE_URL = "https://api.openweathermap.org/data/3.0/onecall";
+
 
 /**
  * Represents a geographical location with latitude and longitude coordinates.
@@ -22,198 +30,186 @@ export interface Location {
  * Represents current weather conditions.
  */
 export interface CurrentWeather {
-  /**
-   * The temperature in Celsius.
-   */
   temperatureCelsius: number;
-  /**
-   * The "feels like" temperature in Celsius.
-   */
   feelsLikeCelsius: number;
-  /**
-   * The weather conditions (e.g., Sunny, Cloudy, Rainy).
-   */
   conditions: string;
-  /**
-   * The humidity percentage.
-   */
   humidity: number;
-  /**
-   * The wind speed in miles per hour.
-   */
-  windSpeed: number;
-  /**
-   * The probability of precipitation as a percentage (0-100).
-   */
-  precipitationProbability: number;
-  /**
-   * The IANA timezone string for the location (e.g., "Europe/London").
-   * Optional, as it might not be available for all location sources (e.g., raw geolocation).
-   */
-  timezone?: string;
+  windSpeed: number; // mph
+  precipitationProbability: number; // 0-100%
+  timezone: string; // IANA timezone string
 }
 
 /**
  * Represents a daily weather forecast.
  */
 export interface DailyForecast {
-  /**
-   * The high temperature in Celsius for the day.
-   */
+  date: Date; // Store actual date object for easier comparison
   highTemperatureCelsius: number;
-  /**
-   * The low temperature in Celsius for the day.
-   */
   lowTemperatureCelsius: number;
-  /**
-   * The weather conditions for the day (e.g., Sunny, Cloudy, Rainy).
-   */
   conditions: string;
-  /**
-   * The probability of precipitation as a percentage (0-100).
-   */
-  precipitationProbability: number;
-  /**
-   * Sunrise time, e.g., "06:30".
-   */
-  sunrise: string;
-  /**
-   * Sunset time, e.g., "18:45".
-   */
-  sunset: string;
+  precipitationProbability: number; // 0-100%
+  sunrise: string; // "HH:mm"
+  sunset: string; // "HH:mm"
 }
 
 /**
  * Represents an hourly weather forecast.
  */
 export interface HourlyForecast {
-  /**
-   * The time for the forecast (e.g., "10:00").
-   */
-  time: string;
-  /**
-   * The temperature in Celsius.
-   */
+  time: string; // "HH:00"
   temperatureCelsius: number;
-  /**
-   * The "feels like" temperature in Celsius.
-   */
   feelsLikeCelsius: number;
-  /**
-   * The weather conditions (e.g., Sunny, Cloudy, Rainy).
-   */
   conditions: string;
-  /**
-   * The probability of precipitation as a percentage (0-100).
-   */
-  precipitationProbability: number;
+  precipitationProbability: number; // 0-100%
+  dateTime: Date; // Full Date object for this hour, in location's timezone
 }
 
+export interface GeocodedLocation {
+  name: string;
+  lat: number;
+  lng: number; // OpenWeatherMap uses 'lon', we map to 'lng'
+  country: string;
+  state?: string; // e.g., state for US, admin area for others
+}
+
+export interface OpenWeatherDataBundle {
+  current: CurrentWeather;
+  daily: DailyForecast[];
+  hourly: HourlyForecast[]; // All 48 hours of hourly forecast
+  timezone: string; // IANA timezone from API
+  lat: number;
+  lng: number;
+  locationName?: string; // City name from reverse geocoding if available
+}
+
+function capitalizeFirstLetter(string: string): string {
+  return string.charAt(0).toUpperCase() + string.slice(1);
+}
+
+function mpsToMph(mps: number): number {
+  return Math.round(mps * 2.23694);
+}
 
 /**
- * Asynchronously retrieves current weather conditions for a given location.
- * This function returns MOCK data.
- * @param location The location for which to retrieve weather data.
- * @param timezone Optional IANA timezone string.
- * @returns A promise that resolves to a CurrentWeather object containing current weather conditions.
+ * Fetches geocoding information for a city name.
+ * @param cityName The name of the city.
+ * @returns A promise that resolves to an array of GeocodedLocation objects.
  */
-export async function getCurrentWeather(location: Location, timezone?: string): Promise<CurrentWeather> {
-  console.log("Fetching current weather for:", location, "Timezone:", timezone);
-  await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API delay
-  
-  // More realistic Celsius temperatures for a temperate climate
-  const baseTemp = 10 + (Math.random() * 15); // Base temp between 10°C and 25°C
-  
-  return {
-    temperatureCelsius: Math.round(baseTemp + (Math.random() * 4 - 2)), // +/- 2°C variation
-    feelsLikeCelsius: Math.round(baseTemp + (Math.random() * 6 - 3)), // Feels like can vary a bit more
-    conditions: ['Partly Cloudy', 'Sunny', 'Cloudy', 'Light Rain'][Math.floor(Math.random() * 4)],
-    humidity: 40 + Math.floor(Math.random() * 50), // Humidity 40-90%
-    windSpeed: 3 + Math.floor(Math.random() * 12), // mph
-    precipitationProbability: Math.floor(Math.random() * 101),
+export async function geocodeCity(cityName: string): Promise<GeocodedLocation[]> {
+  const response = await fetch(`${GEO_BASE_URL}/direct?q=${encodeURIComponent(cityName)}&limit=5&appid=${API_KEY}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(`Failed to geocode city: ${errorData.message || response.statusText}`);
+  }
+  const data = await response.json();
+  return data.map((item: any) => ({
+    name: item.name,
+    lat: item.lat,
+    lng: item.lon,
+    country: item.country,
+    state: item.state,
+  }));
+}
+
+/**
+ * Fetches location name via reverse geocoding.
+ * @param coords The latitude and longitude.
+ * @returns A promise that resolves to a GeocodedLocation object or null.
+ */
+export async function reverseGeocode(coords: Location): Promise<GeocodedLocation | null> {
+  const response = await fetch(`${GEO_BASE_URL}/reverse?lat=${coords.lat}&lon=${coords.lng}&limit=1&appid=${API_KEY}`);
+  if (!response.ok) {
+    console.error("Failed to reverse geocode:", response.statusText);
+    return null;
+  }
+  const data = await response.json();
+  if (data && data.length > 0) {
+    const item = data[0];
+    return {
+      name: item.name,
+      lat: item.lat,
+      lng: item.lon,
+      country: item.country,
+      state: item.state,
+    };
+  }
+  return null;
+}
+
+/**
+ * Fetches comprehensive weather data (current, daily, hourly) from OpenWeatherMap One Call API.
+ * @param coords The location (latitude and longitude) for which to fetch weather data.
+ * @returns A promise that resolves to an OpenWeatherDataBundle.
+ */
+export async function fetchOpenWeatherDataBundle(coords: Location): Promise<OpenWeatherDataBundle> {
+  const url = `${WEATHER_BASE_URL}?lat=${coords.lat}&lon=${coords.lng}&appid=${API_KEY}&units=metric&exclude=minutely,alerts`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(`Failed to fetch weather data: ${errorData.message || response.statusText}`);
+  }
+
+  const data = await response.json();
+  const timezone = data.timezone;
+
+  const current: CurrentWeather = {
+    temperatureCelsius: Math.round(data.current.temp),
+    feelsLikeCelsius: Math.round(data.current.feels_like),
+    conditions: data.current.weather[0] ? capitalizeFirstLetter(data.current.weather[0].description) : 'N/A',
+    humidity: data.current.humidity,
+    windSpeed: mpsToMph(data.current.wind_speed),
+    precipitationProbability: data.daily[0] ? Math.round(data.daily[0].pop * 100) : 0, // PoP for today
     timezone: timezone,
   };
-}
 
-/**
- * Asynchronously retrieves a weather forecast for the next 10 days for a given location.
- * This function returns MOCK data.
- * @param location The location for which to retrieve the weather forecast.
- * @returns A promise that resolves to an array of DailyForecast objects representing the 10-day forecast.
- */
-export async function get10DayForecast(location: Location): Promise<DailyForecast[]> {
-  console.log("Fetching 10-day forecast for:", location);
-  await new Promise(resolve => setTimeout(resolve, 700)); // Simulate API delay
-
-  const conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Rainy', 'Showers', 'Thunderstorm'];
-  const forecast: DailyForecast[] = Array.from({ length: 10 }, (_, i) => {
-    const baseHigh = 12 + Math.random() * 13; // Base high temp in Celsius (12 to 25°C)
-    const highTemperatureCelsius = Math.round(baseHigh + (Math.random() * 4 - 2));
-    const lowTemperatureCelsius = Math.round(highTemperatureCelsius - (5 + Math.random() * 5)); // Low is 5-10°C lower
-    
-    // Mock sunrise/sunset times (very simplified)
-    const sunriseHour = 6 + Math.floor(Math.random()*2); // 6 or 7
-    const sunriseMinute = Math.floor(Math.random()*4) * 15; // 00, 15, 30, 45
-    const sunsetHour = 18 + Math.floor(Math.random()*3); // 18, 19, 20
-    const sunsetMinute = Math.floor(Math.random()*4) * 15;
-
+  // OWM OneCall free tier gives 8 days of daily forecast (current day + 7 future days)
+  const daily: DailyForecast[] = data.daily.slice(0, 8).map((d: any) => {
+    const dayDate = new Date(d.dt * 1000);
     return {
-      highTemperatureCelsius,
-      lowTemperatureCelsius,
-      conditions: conditions[Math.floor(Math.random() * conditions.length)],
-      precipitationProbability: Math.floor(Math.random() * 101), // 0-100%
-      sunrise: `${sunriseHour.toString().padStart(2, '0')}:${sunriseMinute.toString().padStart(2, '0')}`,
-      sunset: `${sunsetHour.toString().padStart(2, '0')}:${sunsetMinute.toString().padStart(2, '0')}`,
+      date: dayDate, // Store actual date for easier processing later
+      highTemperatureCelsius: Math.round(d.temp.max),
+      lowTemperatureCelsius: Math.round(d.temp.min),
+      conditions: d.weather[0] ? capitalizeFirstLetter(d.weather[0].description) : 'N/A',
+      precipitationProbability: Math.round(d.pop * 100),
+      sunrise: formatInTimeZone(new Date(d.sunrise * 1000), timezone, 'HH:mm'),
+      sunset: formatInTimeZone(new Date(d.sunset * 1000), timezone, 'HH:mm'),
+    };
+  });
+  
+  const hourly: HourlyForecast[] = data.hourly.map((h: any) => {
+     const hourlyDt = new Date(h.dt * 1000);
+     return {
+      time: formatInTimeZone(hourlyDt, timezone, 'HH:00'),
+      temperatureCelsius: Math.round(h.temp),
+      feelsLikeCelsius: Math.round(h.feels_like),
+      conditions: h.weather[0] ? capitalizeFirstLetter(h.weather[0].description) : 'N/A',
+      precipitationProbability: Math.round(h.pop * 100),
+      dateTime: hourlyDt, // Keep the full Date object, it will be in UTC, but when formatting, use timezone
     };
   });
 
-  return forecast;
-}
-
-
-/**
- * Asynchronously retrieves an hourly weather forecast for a specific date and location.
- * This function returns MOCK data.
- * For "Today", it starts from the next full hour based on system time.
- * For other days, it provides a full 24-hour forecast.
- *
- * @param date The date for which to retrieve the hourly forecast.
- * @param location The location for which to retrieve the weather forecast.
- * @returns A promise that resolves to an array of HourlyForecast objects.
- */
-export async function getHourlyForecast(date: Date, location: Location): Promise<HourlyForecast[]> {
-  console.log("Fetching hourly forecast for:", date.toDateString(), "at", location);
-  await new Promise(resolve => setTimeout(resolve, 600)); // Simulate API delay
-
-  const conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Light Rain', 'Showers', 'Clear'];
-  let hourlyForecasts: HourlyForecast[] = [];
-  // Base temperature for the day, adjusted for Celsius
-  const baseTemp = 8 + Math.random() * 12; // Base temp for the day between 8°C and 20°C
-
-  for (let hour = 0; hour < 24; hour++) {
-    // Simulate temperature variation throughout the day
-    const tempVariation = Math.sin((hour / 23) * Math.PI * 2 - Math.PI / 2) * 5; // Sinusoidal variation peaking mid-day
-    const temperatureCelsius = Math.round(baseTemp + tempVariation + (Math.random() * 2 - 1)); // Add small random fluctuation
-    const feelsLikeCelsius = Math.round(temperatureCelsius + (Math.random() * 3 - 1.5)); // Feels like can be +/- 1.5C
-    
-    hourlyForecasts.push({
-      time: `${hour.toString().padStart(2, '0')}:00`,
-      temperatureCelsius: temperatureCelsius,
-      feelsLikeCelsius: feelsLikeCelsius,
-      conditions: conditions[Math.floor(Math.random() * conditions.length)],
-      precipitationProbability: Math.floor(Math.random() * 101), // Random precip probability up to 100%
-    });
+  // Attempt to get a location name if not provided (e.g. for geolocation)
+  // This adds an extra API call, could be optimized if name is already known
+  let locationName = "";
+  try {
+    const geo = await reverseGeocode(coords);
+    if (geo) {
+        locationName = geo.name;
+        // Could also update country/state from here if needed
+    }
+  } catch (e) {
+    console.warn("Could not reverse geocode for bundle:", e);
   }
 
-  // If the date is today, filter out past hours and the current hour
-  const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    const nextFullHour = now.getHours() + 1; // Start from the next full hour
-    hourlyForecasts = hourlyForecasts.filter(forecast => {
-      const forecastHour = parseInt(forecast.time.split(':')[0], 10);
-      return forecastHour >= nextFullHour;
-    });
-  }
 
-  return hourlyForecasts;
+  return {
+    current,
+    daily,
+    hourly,
+    timezone,
+    lat: data.lat, // OWM returns lat/lon which might be slightly different from input
+    lng: data.lon,
+    locationName: locationName || undefined,
+  };
 }

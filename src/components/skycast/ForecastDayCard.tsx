@@ -3,28 +3,41 @@ import type { FC } from 'react';
 import type { DailyForecast } from '@/services/weather';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import WeatherIcon from './WeatherIcon';
-import { format, addDays } from 'date-fns';
+import { format } from 'date-fns';
 import { Droplets, Sunrise, Sunset } from 'lucide-react';
 
 interface ForecastDayCardProps {
   forecast: DailyForecast;
-  dayIndex: number; // 0 for today, 1 for tomorrow, etc.
-  onClick: (forecast: DailyForecast, date: Date) => void;
+  dayIndex: number; // Used for "Today", "Tomorrow" logic primarily
+  onClick: (forecast: DailyForecast) => void; // Date is part of forecast or handled by parent
   isSelected: boolean;
 }
 
 const ForecastDayCard: FC<ForecastDayCardProps> = ({ forecast, dayIndex, onClick, isSelected }) => {
-  const date = addDays(new Date(), dayIndex);
-  const dayName = dayIndex === 0 ? 'Today' : dayIndex === 1 ? 'Tomorrow' : format(date, 'EEE');
+  const date = forecast.date; // Use the date from the forecast object
+  
+  let dayName: string;
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+
+  if (date.toDateString() === today.toDateString()) {
+    dayName = 'Today';
+  } else if (date.toDateString() === tomorrow.toDateString()) {
+    dayName = 'Tomorrow';
+  } else {
+    dayName = format(date, 'EEE');
+  }
+  
   const fullDate = format(date, 'MMM d');
 
   return (
     <Card 
       className={`flex flex-col items-center text-center shadow-md hover:shadow-xl transition-all duration-300 h-full cursor-pointer ${isSelected ? 'ring-2 ring-primary shadow-xl scale-105' : 'hover:scale-105'}`}
-      onClick={() => onClick(forecast, date)}
+      onClick={() => onClick(forecast)}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(forecast, date)}}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(forecast)}}
       aria-pressed={isSelected}
       aria-label={`View hourly forecast for ${dayName}, ${fullDate}`}
     >
@@ -39,7 +52,7 @@ const ForecastDayCard: FC<ForecastDayCardProps> = ({ forecast, dayIndex, onClick
             {Math.round(forecast.highTemperatureCelsius)}°
             <span className="text-sm font-normal text-muted-foreground">HI</span>
           </p>
-          <p className="text-xl font-bold text-muted-foreground"> {/* Changed text-md to text-xl */}
+          <p className="text-xl font-bold text-muted-foreground"> 
             {Math.round(forecast.lowTemperatureCelsius)}°
             <span className="text-sm font-normal">LO</span>
           </p>

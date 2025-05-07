@@ -1,9 +1,8 @@
-
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Location, CurrentWeather, DailyForecast, HourlyForecast } from '@/services/weather';
-import { getCurrentWeather, get10DayForecast, getHourlyForecast } from '@/services/weather';
+import type { Location, CurrentWeather, DailyForecast, HourlyForecast, GeocodedLocation } from '@/services/weather';
+import { fetchOpenWeatherDataBundle, geocodeCity, reverseGeocode } from '@/services/weather';
 import LocationInput from '@/components/skycast/LocationInput';
 import CurrentWeatherDisplay from '@/components/skycast/CurrentWeatherDisplay';
 import ForecastDisplay from '@/components/skycast/ForecastDisplay';
@@ -11,71 +10,70 @@ import HourlyForecastDisplay from '@/components/skycast/HourlyForecastDisplay';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { formatInTimeZone } from 'date-fns-tz';
+
 
 interface DisplayLocationData extends Location {
-  name: string; // City name or "Current Location"
+  name: string; 
   county?: string;
   country?: string;
   timezone: string; 
 }
 
-const MOCK_LOCATIONS_DATA: Record<string, Omit<DisplayLocationData, 'lat' | 'lng'>> = {
-  "london": { name: "London", county: "Greater London", country: "United Kingdom", timezone: "Europe/London" },
-  "new york": { name: "New York", county: "New York County", country: "USA", timezone: "America/New_York" },
-  "tokyo": { name: "Tokyo", county: "Tokyo Metropolis", country: "Japan", timezone: "Asia/Tokyo" },
-  "paris": { name: "Paris", county: "Île-de-France", country: "France", timezone: "Europe/Paris" },
-  "berlin": { name: "Berlin", county: "Berlin", country: "Germany", timezone: "Europe/Berlin" },
-};
-
-const MOCK_GEOCODING_COORDS: Record<string, Location> = {
-  "london": { lat: 51.5074, lng: -0.1278 },
-  "new york": { lat: 40.7128, lng: -74.0060 },
-  "tokyo": { lat: 35.6895, lng: 139.6917 },
-  "paris": { lat: 48.8566, lng: 2.3522 },
-  "berlin": { lat: 52.5200, lng: 13.4050 },
-};
-
-
 export default function SkyCastPage() {
   const [activeDisplayLocation, setActiveDisplayLocation] = useState<DisplayLocationData | null>(null);
   const [currentWeather, setCurrentWeather] = useState<CurrentWeather | null>(null);
-  const [forecast, setForecast] = useState<DailyForecast[] | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [dailyForecasts, setDailyForecasts] = useState<DailyForecast[] | null>(null);
+  const [rawHourlyForecasts, setRawHourlyForecasts] = useState<HourlyForecast[] | null>(null); // Store all 48h
+  
+  const [loading, setLoading] = useState(true); // Start true for initial load
   const [error, setError] = useState<string | null>(null);
   
   const [selectedDayForecast, setSelectedDayForecast] = useState<DailyForecast | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [hourlyForecasts, setHourlyForecasts] = useState<HourlyForecast[] | null>(null);
+  const [selectedDateForHourly, setSelectedDateForHourly] = useState<Date | null>(null);
+  const [displayableHourlyForecasts, setDisplayableHourlyForecasts] = useState<HourlyForecast[] | null>(null);
   const [loadingHourly, setLoadingHourly] = useState(false);
   const [errorHourly, setErrorHourly] = useState<string | null>(null);
 
   const { toast } = useToast();
 
-  const fetchWeatherData = useCallback(async (coords: Location, displayInfo: DisplayLocationData) => {
+  const fetchWeatherData = useCallback(async (coords: Location, initialName: string, initialCounty?: string, initialCountry?: string) => {
     setLoading(true);
     setError(null);
     setCurrentWeather(null);
-    setForecast(null);
-    setHourlyForecasts(null); 
+    setDailyForecasts(null);
+    setRawHourlyForecasts(null);
+    setDisplayableHourlyForecasts(null); 
     setSelectedDayForecast(null);
-    setSelectedDate(null);
-    setActiveDisplayLocation(displayInfo);
+    setSelectedDateForHourly(null);
+    // activeDisplayLocation will be set after data is fetched and timezone is known
 
     try {
-      const [current, dailyForecast] = await Promise.all([
-        getCurrentWeather(coords, displayInfo.timezone),
-        get10DayForecast(coords),
-      ]);
-      setCurrentWeather(current);
-      setForecast(dailyForecast);
+      const bundle = await fetchOpenWeatherDataBundle(coords);
+      
+      const displayLocation: DisplayLocationData = {
+        lat: bundle.lat,
+        lng: bundle.lng,
+        name: bundle.locationName || initialName,
+        county: initialCounty, // Geocoding provides this, reverse geocoding could also. For now, use initial from geocoding.
+        country: initialCountry, // Same as county.
+        timezone: bundle.timezone,
+      };
+      setActiveDisplayLocation(displayLocation);
+
+      setCurrentWeather(bundle.current);
+      setDailyForecasts(bundle.daily);
+      setRawHourlyForecasts(bundle.hourly);
+      
       toast({
         title: "Weather Updated",
-        description: `Displaying weather for ${displayInfo.name}.`,
+        description: `Displaying weather for ${displayLocation.name}.`,
       });
     } catch (err) {
       console.error("Failed to fetch weather data:", err);
       const errorMessage = err instanceof Error ? err.message : "An unknown error occurred";
       setError(`Failed to fetch weather data: ${errorMessage}`);
+      setActiveDisplayLocation(null); // Clear location if fetch fails
       toast({
         variant: "destructive",
         title: "Error",
@@ -86,29 +84,37 @@ export default function SkyCastPage() {
     }
   }, [toast]);
 
-  const handleCitySubmit = (city: string) => {
-    const locationKey = city.toLowerCase();
-    const coords = MOCK_GEOCODING_COORDS[locationKey];
-    const displayDetails = MOCK_LOCATIONS_DATA[locationKey];
-
-    if (coords && displayDetails) {
-      const fullDisplayLocation: DisplayLocationData = {
-        ...coords,
-        name: city.charAt(0).toUpperCase() + city.slice(1),
-        county: displayDetails.county,
-        country: displayDetails.country,
-        timezone: displayDetails.timezone,
-      };
-      fetchWeatherData(coords, fullDisplayLocation);
-    } else {
-      setError(`Could not find full data for "${city}". Please try a known city (e.g., London, New York) or use geolocation.`);
+  const handleCitySubmit = useCallback(async (city: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const geocodedResults = await geocodeCity(city);
+      if (geocodedResults && geocodedResults.length > 0) {
+        const GARS = geocodedResults[0] as GeocodedLocation; // Type assertion
+        const coords = { lat: GARS.lat, lng: GARS.lng };
+        fetchWeatherData(coords, GARS.name, GARS.state, GARS.country);
+      } else {
+        setError(`Could not find location data for "${city}".`);
+        toast({
+          variant: "destructive",
+          title: "Location Not Found",
+          description: `We could not find geocoding information for "${city}".`,
+        });
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error("Geocoding error:", err);
+      const errorMessage = err instanceof Error ? err.message : "An unknown geocoding error occurred";
+      setError(`Geocoding error: ${errorMessage}`);
       toast({
         variant: "destructive",
-        title: "Location Not Found",
-        description: `We don't have data for "${city}" in our demo. Try "London" or use geolocation.`,
+        title: "Geocoding Error",
+        description: errorMessage,
       });
+      setLoading(false);
     }
-  };
+  }, [fetchWeatherData, toast]);
+
 
   const handleGeolocate = () => {
     if (!navigator.geolocation) {
@@ -124,15 +130,26 @@ export default function SkyCastPage() {
     setLoading(true);
     setError(null);
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const { latitude, longitude } = position.coords;
         const coords = { lat: latitude, lng: longitude };
-        const displayInfo: DisplayLocationData = {
-          ...coords,
-          name: "Current Location",
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, // User's local timezone
-        };
-        fetchWeatherData(coords, displayInfo);
+        
+        // Attempt to get city name from reverse geocoding for a better display name
+        let initialName = "Current Location";
+        let initialCounty: string | undefined;
+        let initialCountry: string | undefined;
+        try {
+            const geoInfo = await reverseGeocode(coords);
+            if (geoInfo) {
+                initialName = geoInfo.name;
+                initialCounty = geoInfo.state;
+                initialCountry = geoInfo.country;
+            }
+        } catch (e) {
+            console.warn("Reverse geocoding failed for current location, using default name.", e);
+        }
+        
+        fetchWeatherData(coords, initialName, initialCounty, initialCountry);
       },
       (err) => {
         setError(`Geolocation error: ${err.message}`);
@@ -146,48 +163,66 @@ export default function SkyCastPage() {
     );
   };
 
-  const handleDayCardClick = useCallback(async (dayForecast: DailyForecast, date: Date) => {
-    if (selectedDate && selectedDate.toDateString() === date.toDateString()) {
+  const handleDayCardClick = useCallback((dayForecast: DailyForecast, dateClicked: Date) => {
+    if (selectedDateForHourly && selectedDateForHourly.toDateString() === dateClicked.toDateString()) {
+        // Clicking the same day card again closes the hourly view
         setSelectedDayForecast(null);
-        setSelectedDate(null);
-        setHourlyForecasts(null);
+        setSelectedDateForHourly(null);
+        setDisplayableHourlyForecasts(null);
         setErrorHourly(null);
         return;
     }
 
     setSelectedDayForecast(dayForecast);
-    setSelectedDate(date);
-    setHourlyForecasts(null); 
+    setSelectedDateForHourly(dateClicked);
+    setDisplayableHourlyForecasts(null); 
     setLoadingHourly(true);
     setErrorHourly(null);
 
-    if (!activeDisplayLocation) {
-      setErrorHourly("Location data is not available to fetch hourly forecast.");
+    if (!rawHourlyForecasts || !activeDisplayLocation) {
+      setErrorHourly("Hourly forecast data or location timezone is not available.");
       setLoadingHourly(false);
-      toast({ variant: "destructive", title: "Error", description: "Location data missing for hourly forecast." });
+      toast({ variant: "destructive", title: "Error", description: "Cannot display hourly forecast." });
       return;
     }
 
     try {
-      // Pass only lat/lng for the API call, as the service only expects Location type
-      const coordsForApi: Location = { lat: activeDisplayLocation.lat, lng: activeDisplayLocation.lng };
-      const hourly = await getHourlyForecast(date, coordsForApi);
-      setHourlyForecasts(hourly);
+      const locationTimezone = activeDisplayLocation.timezone;
+      const nowInLocationTimezone = new Date(formatInTimeZone(new Date(), locationTimezone, "yyyy-MM-dd HH:mm:ssXXX"));
+      
+      const currentHourInLocationTimezone = nowInLocationTimezone.getHours();
+      const isTodayInLocationTimezone = nowInLocationTimezone.toDateString() === dateClicked.toDateString();
+
+      const filteredHourly = rawHourlyForecasts.filter(hourly => {
+        // Convert hourly.dateTime (UTC) to location's timezone for date comparison
+        const forecastDateInLocationTz = new Date(formatInTimeZone(hourly.dateTime, locationTimezone, "yyyy-MM-dd HH:mm:ssXXX"));
+        
+        if (forecastDateInLocationTz.toDateString() !== dateClicked.toDateString()) {
+          return false; // Not the selected day
+        }
+
+        if (isTodayInLocationTimezone) {
+          const forecastHour = forecastDateInLocationTz.getHours();
+          return forecastHour >= currentHourInLocationTimezone +1 ; // Show from next full hour onwards for today
+        }
+        return true; // For future days, show all hours
+      });
+
+      setDisplayableHourlyForecasts(filteredHourly);
     } catch (err) {
-      console.error("Failed to fetch hourly forecast:", err);
+      console.error("Error processing hourly forecast:", err);
       const errorMessage = err instanceof Error ? err.message : "An unknown error occurred";
-      setErrorHourly(`Failed to fetch hourly forecast: ${errorMessage}`);
+      setErrorHourly(`Failed to process hourly forecast: ${errorMessage}`);
       toast({ variant: "destructive", title: "Hourly Forecast Error", description: errorMessage });
     } finally {
       setLoadingHourly(false);
     }
-  }, [activeDisplayLocation, toast, selectedDate]);
+  }, [rawHourlyForecasts, activeDisplayLocation, toast, selectedDateForHourly]);
   
   useEffect(() => {
-    // Load London by default
     handleCitySubmit("London");
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // Initial load for London
 
 
   return (
@@ -219,13 +254,13 @@ export default function SkyCastPage() {
           </Alert>
         )}
 
-        {!loading && currentWeather && forecast && activeDisplayLocation && (
+        {!loading && currentWeather && dailyForecasts && activeDisplayLocation && (
           <div className="space-y-10 animate-fadeIn">
             <CurrentWeatherDisplay weather={currentWeather} location={activeDisplayLocation} />
             <ForecastDisplay 
-              forecasts={forecast} 
+              forecasts={dailyForecasts} 
               onDayClick={handleDayCardClick}
-              selectedDate={selectedDate}
+              selectedDate={selectedDateForHourly}
             />
           </div>
         )}
@@ -245,16 +280,16 @@ export default function SkyCastPage() {
           </Alert>
         )}
         
-        {!loadingHourly && hourlyForecasts && selectedDayForecast && selectedDate && (
+        {!loadingHourly && displayableHourlyForecasts && selectedDayForecast && selectedDateForHourly && (
           <div className="my-10 animate-fadeIn">
             <HourlyForecastDisplay 
-              hourlyForecasts={hourlyForecasts} 
+              hourlyForecasts={displayableHourlyForecasts} 
               selectedDay={selectedDayForecast} 
-              selectedDate={selectedDate}
+              selectedDate={selectedDateForHourly}
               onClose={() => {
-                setHourlyForecasts(null);
+                setDisplayableHourlyForecasts(null);
                 setSelectedDayForecast(null);
-                setSelectedDate(null);
+                setSelectedDateForHourly(null);
               }}
             />
           </div>
@@ -272,10 +307,10 @@ export default function SkyCastPage() {
       </main>
        <footer className="text-center mt-12 py-6 border-t">
         <p className="text-sm text-muted-foreground">
-          SkyCast &copy; {new Date().getFullYear()}. Weather data is for demonstration purposes only.
+          SkyCast &copy; {new Date().getFullYear()}. 
         </p>
         <p className="text-xs text-muted-foreground/70 mt-1">
-          Weather data provided by Mock Weather API. Not for actual use.
+          Weather data provided by OpenWeatherMap.org.
         </p>
       </footer>
     </div>
