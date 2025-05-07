@@ -1,34 +1,18 @@
+
 /**
- * @fileOverview Weather service for fetching weather data from OpenWeatherMap.org.
+ * @fileOverview Weather service for generating sample weather data.
  * Temperatures are in Celsius. Wind speed in mph. Precipitation probability in %.
  */
+'use client';
 
 import { formatInTimeZone } from 'date-fns-tz';
 
-// IMPORTANT: In a production application, API keys should be stored in environment variables
-// and not hardcoded. For this exercise, the key is embedded directly.
-const API_KEY = "adeaef8cfe7858f48349f3f511042832";
-const GEO_BASE_URL = "https://api.openweathermap.org/geo/1.0";
-const WEATHER_BASE_URL = "https://api.openweathermap.org/data/3.0/onecall";
-
-
-/**
- * Represents a geographical location with latitude and longitude coordinates.
- */
+// Interfaces for data structures
 export interface Location {
-  /**
-   * The latitude of the location.
-   */
   lat: number;
-  /**
-   * The longitude of the location.
-   */
   lng: number;
 }
 
-/**
- * Represents current weather conditions.
- */
 export interface CurrentWeather {
   temperatureCelsius: number;
   feelsLikeCelsius: number;
@@ -39,11 +23,8 @@ export interface CurrentWeather {
   timezone: string; // IANA timezone string
 }
 
-/**
- * Represents a daily weather forecast.
- */
 export interface DailyForecast {
-  date: Date; // Store actual date object for easier comparison
+  date: Date;
   highTemperatureCelsius: number;
   lowTemperatureCelsius: number;
   conditions: string;
@@ -52,164 +33,204 @@ export interface DailyForecast {
   sunset: string; // "HH:mm"
 }
 
-/**
- * Represents an hourly weather forecast.
- */
 export interface HourlyForecast {
   time: string; // "HH:00"
   temperatureCelsius: number;
   feelsLikeCelsius: number;
   conditions: string;
   precipitationProbability: number; // 0-100%
-  dateTime: Date; // Full Date object for this hour, in location's timezone
+  dateTime: Date; // Full Date object for this hour
 }
 
 export interface GeocodedLocation {
   name: string;
   lat: number;
-  lng: number; // OpenWeatherMap uses 'lon', we map to 'lng'
+  lng: number;
   country: string;
   state?: string; // e.g., state for US, admin area for others
+  timezone: string; // Added IANA timezone string
 }
 
 export interface OpenWeatherDataBundle {
   current: CurrentWeather;
   daily: DailyForecast[];
-  hourly: HourlyForecast[]; // All 48 hours of hourly forecast
-  timezone: string; // IANA timezone from API
+  hourly: HourlyForecast[];
+  timezone: string;
   lat: number;
   lng: number;
-  locationName?: string; // City name from reverse geocoding if available
+  locationName?: string;
+  county?: string;
+  country?: string;
 }
 
+// Helper function
 function capitalizeFirstLetter(string: string): string {
+  if (!string) return '';
   return string.charAt(0).toUpperCase() + string.slice(1);
 }
 
-function mpsToMph(mps: number): number {
-  return Math.round(mps * 2.23694);
+// Mock data
+const MOCK_LOCATIONS: Record<string, GeocodedLocation> = {
+  "london": { name: "London", lat: 51.5074, lng: 0.1278, country: "GB", state: "England", timezone: "Europe/London" },
+  "new york": { name: "New York", lat: 40.7128, lng: -74.0060, country: "US", state: "NY", timezone: "America/New_York" },
+  "tokyo": { name: "Tokyo", lat: 35.6895, lng: 139.6917, country: "JP", state: "Tokyo", timezone: "Asia/Tokyo" },
+  "paris": { name: "Paris", lat: 48.8566, lng: 2.3522, country: "FR", state: "Île-de-France", timezone: "Europe/Paris" },
+};
+
+const DEFAULT_LOCATION: GeocodedLocation = { 
+  name: "Sampleville", 
+  lat: 34.0522, 
+  lng: -118.2437, 
+  country: "US", 
+  state: "CA", 
+  timezone: "America/Los_Angeles" 
+};
+
+const WEATHER_CONDITIONS = ["Clear Sky", "Few Clouds", "Scattered Clouds", "Broken Clouds", "Shower Rain", "Rain", "Thunderstorm", "Snow", "Mist"];
+
+function getRandomCondition(): string {
+  return WEATHER_CONDITIONS[Math.floor(Math.random() * WEATHER_CONDITIONS.length)];
 }
 
 /**
- * Fetches geocoding information for a city name.
+ * Simulates geocoding information for a city name.
  * @param cityName The name of the city.
  * @returns A promise that resolves to an array of GeocodedLocation objects.
  */
 export async function geocodeCity(cityName: string): Promise<GeocodedLocation[]> {
-  const response = await fetch(`${GEO_BASE_URL}/direct?q=${encodeURIComponent(cityName)}&limit=5&appid=${API_KEY}`);
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(`Failed to geocode city: ${errorData.message || response.statusText}`);
+  await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300)); // Simulate network delay
+  const normalizedCityName = cityName.toLowerCase();
+  const foundLocation = MOCK_LOCATIONS[normalizedCityName];
+  
+  if (foundLocation) {
+    return [{ ...foundLocation }]; // Return a copy
   }
-  const data = await response.json();
-  return data.map((item: any) => ({
-    name: item.name,
-    lat: item.lat,
-    lng: item.lon,
-    country: item.country,
-    state: item.state,
-  }));
+  if (cityName.toLowerCase() === "unknown" || !cityName.trim()) {
+    return []; // Simulate not found
+  }
+  // For any other city, return a modified default to make it seem dynamic
+  return [{ 
+    ...DEFAULT_LOCATION, 
+    name: capitalizeFirstLetter(cityName), 
+    lat: parseFloat((Math.random() * 180 - 90).toFixed(4)), // Random lat/lng
+    lng: parseFloat((Math.random() * 360 - 180).toFixed(4)),
+    state: `State of ${capitalizeFirstLetter(cityName)}`, // Mock state
+    timezone: DEFAULT_LOCATION.timezone // Use default timezone for unmapped cities
+  }];
 }
 
 /**
- * Fetches location name via reverse geocoding.
+ * Simulates reverse geocoding.
  * @param coords The latitude and longitude.
  * @returns A promise that resolves to a GeocodedLocation object or null.
  */
 export async function reverseGeocode(coords: Location): Promise<GeocodedLocation | null> {
-  const response = await fetch(`${GEO_BASE_URL}/reverse?lat=${coords.lat}&lon=${coords.lng}&limit=1&appid=${API_KEY}`);
-  if (!response.ok) {
-    console.error("Failed to reverse geocode:", response.statusText);
-    return null;
+  await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300)); // Simulate network delay
+  
+  // Try to find a "close" mock location (very simplified)
+  for (const key in MOCK_LOCATIONS) {
+    const loc = MOCK_LOCATIONS[key];
+    if (Math.abs(loc.lat - coords.lat) < 5 && Math.abs(loc.lng - coords.lng) < 5) { // Increased tolerance for mock
+      return { ...loc, name: `${loc.name}` }; // Return a copy, removed (Current Vicinity)
+    }
   }
-  const data = await response.json();
-  if (data && data.length > 0) {
-    const item = data[0];
-    return {
-      name: item.name,
-      lat: item.lat,
-      lng: item.lon,
-      country: item.country,
-      state: item.state,
-    };
-  }
-  return null;
+  // Default for current location if no mock is "close"
+  return { 
+    ...DEFAULT_LOCATION, 
+    name: "My Current Location", 
+    lat: coords.lat, 
+    lng: coords.lng,
+    state: "Current State" // Keeping state for consistency with GeocodedLocation
+    // county is not directly part of GeocodedLocation, it's derived in page.tsx
+  };
 }
 
 /**
- * Fetches comprehensive weather data (current, daily, hourly) from OpenWeatherMap One Call API.
- * @param coords The location (latitude and longitude) for which to fetch weather data.
+ * Generates a sample weather data bundle.
+ * This function is called when weather data for specific coordinates is needed.
+ * @param coords The location (latitude and longitude) for which to generate weather data.
  * @returns A promise that resolves to an OpenWeatherDataBundle.
  */
 export async function fetchOpenWeatherDataBundle(coords: Location): Promise<OpenWeatherDataBundle> {
-  const url = `${WEATHER_BASE_URL}?lat=${coords.lat}&lon=${coords.lng}&appid=${API_KEY}&units=metric&exclude=minutely,alerts`;
-  const response = await fetch(url);
+  await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 500)); // Simulate network delay
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(`Failed to fetch weather data: ${errorData.message || response.statusText}`);
-  }
+  // Use mock reverse geocode to get location details including timezone
+  const geoInfo = await reverseGeocode(coords);
 
-  const data = await response.json();
-  const timezone = data.timezone;
+  const locationName = geoInfo?.name || DEFAULT_LOCATION.name;
+  const county = geoInfo?.state; // GeocodedLocation has 'state', which we use as 'county'
+  const country = geoInfo?.country || DEFAULT_LOCATION.country;
+  const timezone = geoInfo?.timezone || DEFAULT_LOCATION.timezone;
+  
+  const baseTemp = 5 + Math.random() * 20; // Base temperature for the day (5-25°C)
 
   const current: CurrentWeather = {
-    temperatureCelsius: Math.round(data.current.temp),
-    feelsLikeCelsius: Math.round(data.current.feels_like),
-    conditions: data.current.weather[0] ? capitalizeFirstLetter(data.current.weather[0].description) : 'N/A',
-    humidity: data.current.humidity,
-    windSpeed: mpsToMph(data.current.wind_speed),
-    precipitationProbability: data.daily[0] ? Math.round(data.daily[0].pop * 100) : 0, // PoP for today
+    temperatureCelsius: Math.round(baseTemp + (Math.random() * 6 - 3)),
+    feelsLikeCelsius: Math.round(baseTemp + (Math.random() * 8 - 4)), // FeelsLike can vary more
+    conditions: getRandomCondition(),
+    humidity: Math.floor(30 + Math.random() * 60), // 30-90%
+    windSpeed: Math.floor(2 + Math.random() * 28), // 2-30 mph
+    precipitationProbability: Math.floor(Math.random() * 101), // 0-100%
     timezone: timezone,
   };
 
-  // OWM OneCall free tier gives 8 days of daily forecast (current day + 7 future days)
-  const daily: DailyForecast[] = data.daily.slice(0, 8).map((d: any) => {
-    const dayDate = new Date(d.dt * 1000);
-    return {
-      date: dayDate, // Store actual date for easier processing later
-      highTemperatureCelsius: Math.round(d.temp.max),
-      lowTemperatureCelsius: Math.round(d.temp.min),
-      conditions: d.weather[0] ? capitalizeFirstLetter(d.weather[0].description) : 'N/A',
-      precipitationProbability: Math.round(d.pop * 100),
-      sunrise: formatInTimeZone(new Date(d.sunrise * 1000), timezone, 'HH:mm'),
-      sunset: formatInTimeZone(new Date(d.sunset * 1000), timezone, 'HH:mm'),
-    };
-  });
-  
-  const hourly: HourlyForecast[] = data.hourly.map((h: any) => {
-     const hourlyDt = new Date(h.dt * 1000);
-     return {
-      time: formatInTimeZone(hourlyDt, timezone, 'HH:00'),
-      temperatureCelsius: Math.round(h.temp),
-      feelsLikeCelsius: Math.round(h.feels_like),
-      conditions: h.weather[0] ? capitalizeFirstLetter(h.weather[0].description) : 'N/A',
-      precipitationProbability: Math.round(h.pop * 100),
-      dateTime: hourlyDt, // Keep the full Date object, it will be in UTC, but when formatting, use timezone
-    };
-  });
+  const daily: DailyForecast[] = [];
+  const today = new Date();
+  for (let i = 0; i < 8; i++) {
+    const forecastDate = new Date(today);
+    forecastDate.setDate(today.getDate() + i);
+    const dayBaseTemp = baseTemp + (Math.random() * 6 - 3); // Slight variation per day
+    
+    // Ensure low is lower than high
+    let low = Math.round(dayBaseTemp - 2 - Math.random() * 5);
+    let high = Math.round(dayBaseTemp + 2 + Math.random() * 5);
+    if (low >= high) low = high - Math.floor(1 + Math.random() * 3);
 
-  // Attempt to get a location name if not provided (e.g. for geolocation)
-  // This adds an extra API call, could be optimized if name is already known
-  let locationName = "";
-  try {
-    const geo = await reverseGeocode(coords);
-    if (geo) {
-        locationName = geo.name;
-        // Could also update country/state from here if needed
-    }
-  } catch (e) {
-    console.warn("Could not reverse geocode for bundle:", e);
+
+    daily.push({
+      date: new Date(forecastDate), // Ensure a new Date object
+      highTemperatureCelsius: high,
+      lowTemperatureCelsius: low,
+      conditions: getRandomCondition(),
+      precipitationProbability: Math.floor(Math.random() * 101),
+      sunrise: formatInTimeZone(new Date(forecastDate.getFullYear(), forecastDate.getMonth(), forecastDate.getDate(), 6, Math.floor(Math.random()*30)), timezone, 'HH:mm'),
+      sunset: formatInTimeZone(new Date(forecastDate.getFullYear(), forecastDate.getMonth(), forecastDate.getDate(), 20, Math.floor(Math.random()*30)), timezone, 'HH:mm'),
+    });
   }
+  
+  const hourly: HourlyForecast[] = [];
+  const firstHourDate = new Date(); 
+  firstHourDate.setMinutes(0,0,0); // Align to the start of the current hour in system time
 
+  for (let i = 0; i < 48; i++) { // Generate 48 hours of forecast
+    const hourDateTime = new Date(firstHourDate);
+    hourDateTime.setHours(firstHourDate.getHours() + i);
+    
+    // Simulate diurnal temperature variation
+    const hourInDay = hourDateTime.getHours(); // Hour in the day (0-23) in system time
+    let tempFluctuation = Math.sin((hourInDay - 9) * (Math.PI / 12)) * 5; // Peaking around 3 PM (15:00), min around 3 AM
+    
+    const hourlyTemp = Math.round(baseTemp + tempFluctuation + (Math.random() * 2 - 1));
+
+    hourly.push({
+      time: formatInTimeZone(hourDateTime, timezone, 'HH:00'), // Display time in location's timezone
+      temperatureCelsius: hourlyTemp,
+      feelsLikeCelsius: Math.round(hourlyTemp - (Math.random() * 4 - 1)), // Feels like can be bit different
+      conditions: getRandomCondition(),
+      precipitationProbability: Math.floor(Math.random() * 71), // 0-70% for hourly
+      dateTime: new Date(hourDateTime), // Store the full Date object (it's in system time, but corresponds to the 'time' in location's tz)
+    });
+  }
 
   return {
     current,
     daily,
     hourly,
     timezone,
-    lat: data.lat, // OWM returns lat/lon which might be slightly different from input
-    lng: data.lon,
-    locationName: locationName || undefined,
+    lat: coords.lat,
+    lng: coords.lng,
+    locationName: locationName,
+    county: county, // Pass county (derived from state)
+    country: country, // Pass country
   };
 }

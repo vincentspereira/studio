@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -37,7 +38,11 @@ export default function SkyCastPage() {
 
   const { toast } = useToast();
 
-  const fetchWeatherData = useCallback(async (coords: Location, initialName: string, initialCounty?: string, initialCountry?: string) => {
+  // fetchWeatherData now relies on fetchOpenWeatherDataBundle to use its internal (mocked)
+  // reverseGeocode to determine locationName, county, country, and timezone from coords.
+  // The initialName, initialCounty, initialCountry parameters are mostly for fallback
+  // if the bundle doesn't provide them, or to prime the display if needed.
+  const fetchWeatherData = useCallback(async (coords: Location, initialName?: string, initialCounty?: string, initialCountry?: string) => {
     setLoading(true);
     setError(null);
     setCurrentWeather(null);
@@ -46,7 +51,6 @@ export default function SkyCastPage() {
     setDisplayableHourlyForecasts(null); 
     setSelectedDayForecast(null);
     setSelectedDateForHourly(null);
-    // activeDisplayLocation will be set after data is fetched and timezone is known
 
     try {
       const bundle = await fetchOpenWeatherDataBundle(coords);
@@ -54,9 +58,9 @@ export default function SkyCastPage() {
       const displayLocation: DisplayLocationData = {
         lat: bundle.lat,
         lng: bundle.lng,
-        name: bundle.locationName || initialName,
-        county: initialCounty, // Geocoding provides this, reverse geocoding could also. For now, use initial from geocoding.
-        country: initialCountry, // Same as county.
+        name: bundle.locationName || initialName || "Unknown Location",
+        county: bundle.county || initialCounty, 
+        country: bundle.country || initialCountry, 
         timezone: bundle.timezone,
       };
       setActiveDisplayLocation(displayLocation);
@@ -73,7 +77,7 @@ export default function SkyCastPage() {
       console.error("Failed to fetch weather data:", err);
       const errorMessage = err instanceof Error ? err.message : "An unknown error occurred";
       setError(`Failed to fetch weather data: ${errorMessage}`);
-      setActiveDisplayLocation(null); // Clear location if fetch fails
+      setActiveDisplayLocation(null); 
       toast({
         variant: "destructive",
         title: "Error",
@@ -90,9 +94,10 @@ export default function SkyCastPage() {
     try {
       const geocodedResults = await geocodeCity(city);
       if (geocodedResults && geocodedResults.length > 0) {
-        const GARS = geocodedResults[0] as GeocodedLocation; // Type assertion
+        const GARS = geocodedResults[0] as GeocodedLocation; // GeocodedLocation includes timezone
         const coords = { lat: GARS.lat, lng: GARS.lng };
-        fetchWeatherData(coords, GARS.name, GARS.state, GARS.country);
+        // Pass all available info from geocoding to fetchWeatherData as initial values
+        fetchWeatherData(coords, GARS.name, GARS.state, GARS.country); 
       } else {
         setError(`Could not find location data for "${city}".`);
         toast({
@@ -134,22 +139,11 @@ export default function SkyCastPage() {
         const { latitude, longitude } = position.coords;
         const coords = { lat: latitude, lng: longitude };
         
-        // Attempt to get city name from reverse geocoding for a better display name
-        let initialName = "Current Location";
-        let initialCounty: string | undefined;
-        let initialCountry: string | undefined;
-        try {
-            const geoInfo = await reverseGeocode(coords);
-            if (geoInfo) {
-                initialName = geoInfo.name;
-                initialCounty = geoInfo.state;
-                initialCountry = geoInfo.country;
-            }
-        } catch (e) {
-            console.warn("Reverse geocoding failed for current location, using default name.", e);
-        }
-        
-        fetchWeatherData(coords, initialName, initialCounty, initialCountry);
+        // fetchOpenWeatherDataBundle will internally call mock reverseGeocode
+        // so we don't strictly need to pass name/county/country here,
+        // but it can be good for immediate UI feedback or if the bundle call fails partially.
+        // For simplicity with mock, we can let bundle handle it.
+        fetchWeatherData(coords, "Current Location");
       },
       (err) => {
         setError(`Geolocation error: ${err.message}`);
@@ -165,7 +159,6 @@ export default function SkyCastPage() {
 
   const handleDayCardClick = useCallback((dayForecast: DailyForecast, dateClicked: Date) => {
     if (selectedDateForHourly && selectedDateForHourly.toDateString() === dateClicked.toDateString()) {
-        // Clicking the same day card again closes the hourly view
         setSelectedDayForecast(null);
         setSelectedDateForHourly(null);
         setDisplayableHourlyForecasts(null);
@@ -194,18 +187,18 @@ export default function SkyCastPage() {
       const isTodayInLocationTimezone = nowInLocationTimezone.toDateString() === dateClicked.toDateString();
 
       const filteredHourly = rawHourlyForecasts.filter(hourly => {
-        // Convert hourly.dateTime (UTC) to location's timezone for date comparison
-        const forecastDateInLocationTz = new Date(formatInTimeZone(hourly.dateTime, locationTimezone, "yyyy-MM-dd HH:mm:ssXXX"));
-        
-        if (forecastDateInLocationTz.toDateString() !== dateClicked.toDateString()) {
-          return false; // Not the selected day
+        const forecastDateStrInLocationTz = formatInTimeZone(hourly.dateTime, locationTimezone, "yyyy-MM-dd");
+        const clickedDateStrInLocationTz = formatInTimeZone(dateClicked, locationTimezone, "yyyy-MM-dd");
+
+        if (forecastDateStrInLocationTz !== clickedDateStrInLocationTz) {
+          return false; 
         }
 
         if (isTodayInLocationTimezone) {
-          const forecastHour = forecastDateInLocationTz.getHours();
-          return forecastHour >= currentHourInLocationTimezone +1 ; // Show from next full hour onwards for today
+          const forecastHourInLocationTz = parseInt(formatInTimeZone(hourly.dateTime, locationTimezone, "HH"), 10);
+          return forecastHourInLocationTz >= currentHourInLocationTimezone + 1 ; 
         }
-        return true; // For future days, show all hours
+        return true; 
       });
 
       setDisplayableHourlyForecasts(filteredHourly);
@@ -220,9 +213,9 @@ export default function SkyCastPage() {
   }, [rawHourlyForecasts, activeDisplayLocation, toast, selectedDateForHourly]);
   
   useEffect(() => {
-    handleCitySubmit("London");
+    handleCitySubmit("London"); 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Initial load for London
+  }, []); 
 
 
   return (
@@ -310,9 +303,10 @@ export default function SkyCastPage() {
           SkyCast &copy; {new Date().getFullYear()}. 
         </p>
         <p className="text-xs text-muted-foreground/70 mt-1">
-          Weather data provided by OpenWeatherMap.org.
+          Weather data is sample data for demonstration purposes.
         </p>
       </footer>
     </div>
   );
 }
+
