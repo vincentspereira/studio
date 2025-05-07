@@ -46,8 +46,8 @@ export interface GeocodedLocation {
   name: string;
   lat: number;
   lng: number;
-  country: string;
-  state?: string; // e.g., state for US, admin area for others
+  country?: string; // Made optional
+  state?: string; // e.g., state for US, admin area for others, made optional
   timezone: string; // Added IANA timezone string
 }
 
@@ -71,20 +71,31 @@ function capitalizeFirstLetter(string: string): string {
 
 // Mock data
 const MOCK_LOCATIONS: Record<string, GeocodedLocation> = {
-  "london": { name: "London", lat: 51.5074, lng: 0.1278, country: "GB", state: "England", timezone: "Europe/London" },
   "new york": { name: "New York", lat: 40.7128, lng: -74.0060, country: "US", state: "NY", timezone: "America/New_York" },
   "tokyo": { name: "Tokyo", lat: 35.6895, lng: 139.6917, country: "JP", state: "Tokyo", timezone: "Asia/Tokyo" },
   "paris": { name: "Paris", lat: 48.8566, lng: 2.3522, country: "FR", state: "Île-de-France", timezone: "Europe/Paris" },
 };
 
-const DEFAULT_LOCATION: GeocodedLocation = { 
-  name: "Sampleville", 
-  lat: 34.0522, 
-  lng: -118.2437, 
-  country: "US", 
-  state: "CA", 
+const MOCK_LOCATIONS_MULTI: Record<string, GeocodedLocation[]> = {
+  "london": [
+    { name: "London", lat: 51.5074, lng: 0.1278, country: "GB", state: "England", timezone: "Europe/London" },
+    { name: "London", lat: 42.9849, lng: -81.2453, country: "CA", state: "ON", timezone: "America/Toronto" },
+    { name: "London", lat: 37.1280, lng: -84.0833, country: "US", state: "KY", timezone: "America/New_York" },
+  ],
+   "springfield": [
+    { name: "Springfield", lat: 39.7817, lng: -89.6501, country: "US", state: "IL", timezone: "America/Chicago" },
+    { name: "Springfield", lat: 37.2153, lng: -93.2982, country: "US", state: "MO", timezone: "America/Chicago" },
+    { name: "Springfield", lat: 42.1015, lng: -72.5898, country: "US", state: "MA", timezone: "America/New_York" },
+  ]
+};
+
+
+const DEFAULT_LOCATION_BASE: Omit<GeocodedLocation, 'name' | 'lat' | 'lng'> = { 
+  country: undefined, 
+  state: undefined, 
   timezone: "America/Los_Angeles" 
 };
+
 
 const WEATHER_CONDITIONS = ["Clear Sky", "Few Clouds", "Scattered Clouds", "Broken Clouds", "Shower Rain", "Rain", "Thunderstorm", "Snow", "Mist"];
 
@@ -100,22 +111,27 @@ function getRandomCondition(): string {
 export async function geocodeCity(cityName: string): Promise<GeocodedLocation[]> {
   await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300)); // Simulate network delay
   const normalizedCityName = cityName.toLowerCase();
+
+  if (MOCK_LOCATIONS_MULTI[normalizedCityName]) {
+    return MOCK_LOCATIONS_MULTI[normalizedCityName].map(loc => ({ ...loc })); // Return copies
+  }
+
   const foundLocation = MOCK_LOCATIONS[normalizedCityName];
-  
   if (foundLocation) {
     return [{ ...foundLocation }]; // Return a copy
   }
+
   if (cityName.toLowerCase() === "unknown" || !cityName.trim()) {
     return []; // Simulate not found
   }
-  // For any other city, return a modified default to make it seem dynamic
+  
+  // For any other city not in mocks, return a single entry with only the city name
   return [{ 
-    ...DEFAULT_LOCATION, 
+    ...DEFAULT_LOCATION_BASE,
     name: capitalizeFirstLetter(cityName), 
-    lat: parseFloat((Math.random() * 180 - 90).toFixed(4)), // Random lat/lng
+    lat: parseFloat((Math.random() * 180 - 90).toFixed(4)), 
     lng: parseFloat((Math.random() * 360 - 180).toFixed(4)),
-    state: `State of ${capitalizeFirstLetter(cityName)}`, // Mock state
-    timezone: DEFAULT_LOCATION.timezone // Use default timezone for unmapped cities
+    // county and country are intentionally undefined as per DEFAULT_LOCATION_BASE
   }];
 }
 
@@ -125,26 +141,34 @@ export async function geocodeCity(cityName: string): Promise<GeocodedLocation[]>
  * @returns A promise that resolves to a GeocodedLocation object or null.
  */
 export async function reverseGeocode(coords: Location): Promise<GeocodedLocation | null> {
-  await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300)); // Simulate network delay
+  await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300)); 
   
-  // Try to find a "close" mock location (very simplified)
+  for (const key in MOCK_LOCATIONS_MULTI) {
+    for (const loc of MOCK_LOCATIONS_MULTI[key]) {
+       if (Math.abs(loc.lat - coords.lat) < 0.1 && Math.abs(loc.lng - coords.lng) < 0.1) { // stricter check for multi
+         return { ...loc, name: `${loc.name}`}; 
+       }
+    }
+  }
+
   for (const key in MOCK_LOCATIONS) {
     const loc = MOCK_LOCATIONS[key];
-    if (Math.abs(loc.lat - coords.lat) < 5 && Math.abs(loc.lng - coords.lng) < 5) { // Increased tolerance for mock
-      return { ...loc, name: `${loc.name}` }; // Return a copy
+    if (Math.abs(loc.lat - coords.lat) < 1 && Math.abs(loc.lng - coords.lng) < 1) { 
+      return { ...loc, name: `${loc.name}` }; 
     }
   }
   // Default for current location if no mock is "close"
   return { 
-    ...DEFAULT_LOCATION, 
     name: "My Current Location", 
     lat: coords.lat, 
     lng: coords.lng,
-    state: "Current State" // Keeping state for consistency with GeocodedLocation
+    state: "Current State", // Example state
+    country: "Current Country", // Example country
+    timezone: "America/Los_Angeles" // Default timezone for current location
   };
 }
 
-const NUM_DAYS_FORECAST = 8; // Number of days for daily and hourly forecasts
+const NUM_DAYS_FORECAST = 8; 
 
 /**
  * Generates a sample weather data bundle.
@@ -153,14 +177,14 @@ const NUM_DAYS_FORECAST = 8; // Number of days for daily and hourly forecasts
  * @returns A promise that resolves to an OpenWeatherDataBundle.
  */
 export async function fetchOpenWeatherDataBundle(coords: Location): Promise<OpenWeatherDataBundle> {
-  await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 500)); // Simulate network delay
+  await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 500)); 
 
   const geoInfo = await reverseGeocode(coords);
 
-  const locationName = geoInfo?.name || DEFAULT_LOCATION.name;
+  const locationName = geoInfo?.name || capitalizeFirstLetter("Unknown Area");
   const county = geoInfo?.state; 
-  const country = geoInfo?.country || DEFAULT_LOCATION.country;
-  const timezone = geoInfo?.timezone || DEFAULT_LOCATION.timezone;
+  const country = geoInfo?.country;
+  const timezone = geoInfo?.timezone || "America/Los_Angeles";
   
   const baseTemp = 5 + Math.random() * 20; 
 
@@ -223,12 +247,10 @@ export async function fetchOpenWeatherDataBundle(coords: Location): Promise<Open
     if (dayMatch) {
         const dayMeanTemp = (dayMatch.highTemperatureCelsius + dayMatch.lowTemperatureCelsius) / 2;
         const dayAmplitude = (dayMatch.highTemperatureCelsius - dayMatch.lowTemperatureCelsius) / 2;
-        const safeAmplitude = Math.max(1, dayAmplitude); // Ensure some variation even if high=low
-        // Sinusoidal fluctuation: min around 3 AM, max around 3 PM (15:00)
+        const safeAmplitude = Math.max(1, dayAmplitude); 
         const tempFluctuation = -Math.cos((hourInDay - 3) * (Math.PI / 12)) * safeAmplitude;
-        finalHourlyTemp = Math.round(dayMeanTemp + tempFluctuation + (Math.random() * 2 - 1)); // Add small noise
+        finalHourlyTemp = Math.round(dayMeanTemp + tempFluctuation + (Math.random() * 2 - 1)); 
     } else {
-        // Fallback: if no matching day forecast (e.g. if hourly extends beyond daily, though configured not to)
         const tempFluctuationGlobal = Math.sin((hourInDay - 9) * (Math.PI / 12)) * 5;
         finalHourlyTemp = Math.round(baseTemp + tempFluctuationGlobal + (Math.random() * 2 - 1));
     }

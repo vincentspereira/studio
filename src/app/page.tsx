@@ -1,12 +1,14 @@
+
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
 import type { Location, CurrentWeather, DailyForecast, HourlyForecast, GeocodedLocation } from '@/services/weather';
-import { fetchOpenWeatherDataBundle, geocodeCity, reverseGeocode } from '@/services/weather';
+import { fetchOpenWeatherDataBundle, geocodeCity } from '@/services/weather';
 import LocationInput from '@/components/skycast/LocationInput';
 import CurrentWeatherDisplay from '@/components/skycast/CurrentWeatherDisplay';
 import ForecastDisplay from '@/components/skycast/ForecastDisplay';
 import HourlyForecastDisplay from '@/components/skycast/HourlyForecastDisplay';
+import LocationSelectorDialog from '@/components/skycast/LocationSelectorDialog';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -24,9 +26,9 @@ export default function SkyCastPage() {
   const [activeDisplayLocation, setActiveDisplayLocation] = useState<DisplayLocationData | null>(null);
   const [currentWeather, setCurrentWeather] = useState<CurrentWeather | null>(null);
   const [dailyForecasts, setDailyForecasts] = useState<DailyForecast[] | null>(null);
-  const [rawHourlyForecasts, setRawHourlyForecasts] = useState<HourlyForecast[] | null>(null); // Store all 48h
+  const [rawHourlyForecasts, setRawHourlyForecasts] = useState<HourlyForecast[] | null>(null); 
   
-  const [loading, setLoading] = useState(true); // Start true for initial load
+  const [loading, setLoading] = useState(true); 
   const [error, setError] = useState<string | null>(null);
   
   const [selectedDayForecast, setSelectedDayForecast] = useState<DailyForecast | null>(null);
@@ -35,23 +37,38 @@ export default function SkyCastPage() {
   const [loadingHourly, setLoadingHourly] = useState(false);
   const [errorHourly, setErrorHourly] = useState<string | null>(null);
 
+  const [locationOptions, setLocationOptions] = useState<GeocodedLocation[] | null>(null);
+  const [cityForDialog, setCityForDialog] = useState("");
+
   const { toast } = useToast();
 
-  const fetchWeatherData = useCallback(async (coords: Location, initialName?: string, initialCounty?: string, initialCountry?: string) => {
-    setLoading(true);
-    setError(null);
+  const clearWeatherData = () => {
+    setActiveDisplayLocation(null);
     setCurrentWeather(null);
     setDailyForecasts(null);
     setRawHourlyForecasts(null);
     setDisplayableHourlyForecasts(null); 
     setSelectedDayForecast(null);
     setSelectedDateForHourly(null);
+    setError(null);
+    setErrorHourly(null);
+  };
+
+  const fetchWeatherData = useCallback(async (coords: Location, initialName?: string, initialCounty?: string, initialCountry?: string) => {
+    setLoading(true);
+    // Clear most data except error, which might be set by geocoding if this is a retry.
+    // Error related to fetching itself will be handled below.
+    setCurrentWeather(null);
+    setDailyForecasts(null);
+    setRawHourlyForecasts(null);
+    setDisplayableHourlyForecasts(null); 
+    setSelectedDayForecast(null);
+    setSelectedDateForHourly(null);
+    setErrorHourly(null); // Clear hourly error specifically
 
     try {
       const bundle = await fetchOpenWeatherDataBundle(coords);
       
-      // Prioritize initialName, initialCounty, initialCountry if available (from geocodeCity result)
-      // Otherwise, use details from the bundle (from reverseGeocode result)
       const displayLocation: DisplayLocationData = {
         lat: bundle.lat,
         lng: bundle.lng,
@@ -65,16 +82,17 @@ export default function SkyCastPage() {
       setCurrentWeather(bundle.current);
       setDailyForecasts(bundle.daily);
       setRawHourlyForecasts(bundle.hourly);
+      setError(null); // Clear general error on success
       
       toast({
         title: "Weather Updated",
-        description: `Displaying weather for ${displayLocation.name}.`,
+        description: `Displaying weather for ${[displayLocation.name, displayLocation.county, displayLocation.country].filter(Boolean).join(', ')}.`,
       });
     } catch (err) {
       console.error("Failed to fetch weather data:", err);
       const errorMessage = err instanceof Error ? err.message : "An unknown error occurred";
       setError(`Failed to fetch weather data: ${errorMessage}`);
-      setActiveDisplayLocation(null); 
+      clearWeatherData(); // Clear all data on fetch error
       toast({
         variant: "destructive",
         title: "Error",
@@ -87,13 +105,22 @@ export default function SkyCastPage() {
 
   const handleCitySubmit = useCallback(async (city: string) => {
     setLoading(true);
-    setError(null);
+    clearWeatherData(); // Clear previous data when a new city is submitted
+    setCityForDialog(city); // Set city name for dialog title
+
     try {
       const geocodedResults = await geocodeCity(city);
-      if (geocodedResults && geocodedResults.length > 0) {
-        const GARS = geocodedResults[0] as GeocodedLocation; // GeocodedLocation includes timezone
+      if (geocodedResults && geocodedResults.length > 1) {
+        setLocationOptions(geocodedResults);
+        setLoading(false);
+        toast({
+          title: "Multiple Locations Found",
+          description: `Please select the correct "${city}" from the list.`,
+        });
+      } else if (geocodedResults && geocodedResults.length === 1) {
+        setLocationOptions(null);
+        const GARS = geocodedResults[0] as GeocodedLocation;
         const coords = { lat: GARS.lat, lng: GARS.lng };
-        // Pass all available info from geocoding to fetchWeatherData as initial values
         fetchWeatherData(coords, GARS.name, GARS.state, GARS.country); 
       } else {
         setError(`Could not find location data for "${city}".`);
@@ -102,6 +129,7 @@ export default function SkyCastPage() {
           title: "Location Not Found",
           description: `We could not find geocoding information for "${city}".`,
         });
+        setLocationOptions(null);
         setLoading(false);
       }
     } catch (err) {
@@ -113,9 +141,18 @@ export default function SkyCastPage() {
         title: "Geocoding Error",
         description: errorMessage,
       });
+      setLocationOptions(null);
       setLoading(false);
     }
   }, [fetchWeatherData, toast]);
+
+  const handleLocationSelection = (selectedLocation: GeocodedLocation) => {
+    setLocationOptions(null); 
+    setLoading(true); // Set loading before fetching
+    clearWeatherData(); // Clear data before fetching for selected location
+    const coords = { lat: selectedLocation.lat, lng: selectedLocation.lng };
+    fetchWeatherData(coords, selectedLocation.name, selectedLocation.state, selectedLocation.country);
+  };
 
 
   const handleGeolocate = () => {
@@ -130,12 +167,13 @@ export default function SkyCastPage() {
     }
 
     setLoading(true);
-    setError(null);
+    clearWeatherData(); // Clear previous data
+    setLocationOptions(null); // Clear any pending location options
+
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
         const coords = { lat: latitude, lng: longitude };
-        // For geolocation, initialName is "Current Location", county/country will be fetched by reverseGeocode
         fetchWeatherData(coords, "Current Location");
       },
       (err) => {
@@ -145,7 +183,7 @@ export default function SkyCastPage() {
         let toastTitle = "Geolocation Error";
         let toastDescription = `Could not get your location: ${err.message}`;
 
-        if (err.code === 1) { // PERMISSION_DENIED
+        if (err.code === 1) { 
            toastTitle = "Location Access Denied";
            toastDescription = "You've denied permission to access your location. Please enter a city manually or enable location services.";
         }
@@ -156,14 +194,12 @@ export default function SkyCastPage() {
           description: toastDescription,
         });
         
-        // Attempt to load default city if geolocation fails or is denied
-        // Only do this if there's no activeDisplayLocation to avoid overwriting a successful city search
-        if (!activeDisplayLocation) {
+        if (!activeDisplayLocation) { // only load default if nothing is displayed
           toast({
              title: "Loading Default Location",
              description: "Displaying weather for London.",
           });
-          handleCitySubmit("London");
+          handleCitySubmit("London"); // This will trigger MOCK_LOCATIONS_MULTI
         }
       }
     );
@@ -225,34 +261,7 @@ export default function SkyCastPage() {
   }, [rawHourlyForecasts, activeDisplayLocation, toast, selectedDateForHourly]);
   
   useEffect(() => {
-    // Initial load, try geolocation first, then default to London if it fails or is denied.
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          fetchWeatherData({ lat: latitude, lng: longitude }, "Current Location");
-        },
-        (err) => {
-          // If geolocation fails (e.g. denied), load default city
-          let description = "Could not get your location. Displaying weather for London.";
-          if (err.code === 1) { // PERMISSION_DENIED
-            description = "Location access denied. Displaying weather for London.";
-          }
-          toast({
-            title: "Geolocation Failed",
-            description: description,
-          });
-          handleCitySubmit("London"); 
-        }
-      );
-    } else {
-      // Geolocation not supported, load default city
-      toast({
-        title: "Geolocation Not Supported",
-        description: "Displaying weather for London.",
-      });
-      handleCitySubmit("London");
-    }
+    handleGeolocate(); // Attempt geolocation on initial load
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty dependency array: run only once on mount
 
@@ -270,6 +279,16 @@ export default function SkyCastPage() {
         </header>
 
         <LocationInput onCitySubmit={handleCitySubmit} onGeolocate={handleGeolocate} loading={loading} />
+
+        {locationOptions && locationOptions.length > 0 && (
+          <LocationSelectorDialog
+            isOpen={true}
+            locations={locationOptions}
+            onSelect={handleLocationSelection}
+            onClose={() => setLocationOptions(null)}
+            cityName={cityForDialog}
+          />
+        )}
 
         {loading && (
           <div className="flex flex-col items-center justify-center my-10 p-6 bg-card/50 rounded-lg shadow-md">
