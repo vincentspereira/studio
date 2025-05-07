@@ -37,10 +37,6 @@ export default function SkyCastPage() {
 
   const { toast } = useToast();
 
-  // fetchWeatherData now relies on fetchOpenWeatherDataBundle to use its internal (mocked)
-  // reverseGeocode to determine locationName, county, country, and timezone from coords.
-  // The initialName, initialCounty, initialCountry parameters are mostly for fallback
-  // if the bundle doesn't provide them, or to prime the display if needed.
   const fetchWeatherData = useCallback(async (coords: Location, initialName?: string, initialCounty?: string, initialCountry?: string) => {
     setLoading(true);
     setError(null);
@@ -54,12 +50,14 @@ export default function SkyCastPage() {
     try {
       const bundle = await fetchOpenWeatherDataBundle(coords);
       
+      // Prioritize initialName, initialCounty, initialCountry if available (from geocodeCity result)
+      // Otherwise, use details from the bundle (from reverseGeocode result)
       const displayLocation: DisplayLocationData = {
         lat: bundle.lat,
         lng: bundle.lng,
-        name: bundle.locationName || initialName || "Unknown Location",
-        county: bundle.county || initialCounty, 
-        country: bundle.country || initialCountry, 
+        name: initialName || bundle.locationName || "Unknown Location",
+        county: initialCounty || bundle.county, 
+        country: initialCountry || bundle.country, 
         timezone: bundle.timezone,
       };
       setActiveDisplayLocation(displayLocation);
@@ -137,24 +135,35 @@ export default function SkyCastPage() {
       async (position) => {
         const { latitude, longitude } = position.coords;
         const coords = { lat: latitude, lng: longitude };
+        // For geolocation, initialName is "Current Location", county/country will be fetched by reverseGeocode
         fetchWeatherData(coords, "Current Location");
       },
       (err) => {
-        setLoading(false); // Set loading to false in all error paths
+        setLoading(false); 
+        setError(`Geolocation error: ${err.message}.`); 
+        
+        let toastTitle = "Geolocation Error";
+        let toastDescription = `Could not get your location: ${err.message}`;
+
         if (err.code === 1) { // PERMISSION_DENIED
-          setError(`Geolocation error: ${err.message}.`); // Keep the error state for the banner
+           toastTitle = "Location Access Denied";
+           toastDescription = "You've denied permission to access your location. Please enter a city manually or enable location services.";
+        }
+        
+        toast({
+          variant: err.code === 1 ? "default" : "destructive",
+          title: toastTitle,
+          description: toastDescription,
+        });
+        
+        // Attempt to load default city if geolocation fails or is denied
+        // Only do this if there's no activeDisplayLocation to avoid overwriting a successful city search
+        if (!activeDisplayLocation) {
           toast({
-            // Default variant is fine for informational messages
-            title: "Location Access Denied",
-            description: "You've denied permission to access your location. Displaying weather for the current/default city.",
+             title: "Loading Default Location",
+             description: "Displaying weather for London.",
           });
-        } else {
-          setError(`Geolocation error: ${err.message}`);
-          toast({
-            variant: "destructive",
-            title: "Geolocation Error",
-            description: `Could not get your location: ${err.message}`,
-          });
+          handleCitySubmit("London");
         }
       }
     );
@@ -216,9 +225,36 @@ export default function SkyCastPage() {
   }, [rawHourlyForecasts, activeDisplayLocation, toast, selectedDateForHourly]);
   
   useEffect(() => {
-    handleCitySubmit("London"); 
+    // Initial load, try geolocation first, then default to London if it fails or is denied.
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          fetchWeatherData({ lat: latitude, lng: longitude }, "Current Location");
+        },
+        (err) => {
+          // If geolocation fails (e.g. denied), load default city
+          let description = "Could not get your location. Displaying weather for London.";
+          if (err.code === 1) { // PERMISSION_DENIED
+            description = "Location access denied. Displaying weather for London.";
+          }
+          toast({
+            title: "Geolocation Failed",
+            description: description,
+          });
+          handleCitySubmit("London"); 
+        }
+      );
+    } else {
+      // Geolocation not supported, load default city
+      toast({
+        title: "Geolocation Not Supported",
+        description: "Displaying weather for London.",
+      });
+      handleCitySubmit("London");
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); 
+  }, []); // Empty dependency array: run only once on mount
 
 
   return (
