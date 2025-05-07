@@ -6,12 +6,12 @@
   :root {
     --background: 0 0% 100%; /* White */
     --foreground: 200 10% 20%; /* Dark Blue-Gray */
-    --card: 198 100% 84%; /* Light Blue #B0E2FF */
+    --card: 198 90% 88%; /* Slightly adjusted Light Blue for card - was 100% 84% */
     --card-foreground: 200 10% 20%; /* Dark Blue-Gray */
     --popover: 0 0% 100%;
     --popover-foreground: 200 10% 20%;
     --primary: 39 100% 50%; /* Orange #FFA500 */
-    --primary-foreground: 0 0% 100%; /* White */
+    --primary-foreground: 0 0% 100%; /* White - ensure this contrasts well with primary for headers on cards */
     --secondary: 198 100% 90%; /* Lighter Light Blue */
     --secondary-foreground: 200 10% 20%;
     --muted: 198 100% 95%; /* Even Lighter Light Blue */
@@ -43,7 +43,7 @@
   .dark {
     --background: 200 15% 10%; /* Dark Slate Blue */
     --foreground: 198 100% 95%; /* Very Light Blue */
-    --card: 200 15% 15%; /* Darker Slate Blue */
+    --card: 200 15% 18%; /* Darker Slate Blue - slightly adjusted was 15% 15%*/
     --card-foreground: 198 100% 95%;
     --popover: 200 15% 5%;
     --popover-foreground: 198 100% 95%;

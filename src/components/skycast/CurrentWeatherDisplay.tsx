@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react';
 import type { CurrentWeather } from '@/services/weather';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import WeatherIcon from './WeatherIcon';
-import { Droplets, Wind as WindIcon, Umbrella, Clock } from 'lucide-react';
+import { Droplets, Wind as WindIcon, Umbrella, Clock, CloudIcon } from 'lucide-react'; // Added CloudIcon for fallback
+import { formatInTimeZone } from 'date-fns-tz';
+
 
 interface DisplayLocationData {
   name: string; // City name or "Current Location"
@@ -26,30 +28,26 @@ const CurrentWeatherDisplay: FC<CurrentWeatherDisplayProps> = ({ weather, locati
 
   useEffect(() => {
     const updateClocks = () => {
+      const now = new Date();
       // Update searched location's time
       try {
-        const searchedTime = new Date().toLocaleTimeString('en-US', {
-          timeZone: location.timezone,
-          hour: '2-digit',
-          minute: '2-digit',
-        });
+        // Use formatInTimeZone for consistency and robustness
+        const searchedTime = formatInTimeZone(now, location.timezone, 'HH:mm');
         setSearchedLocationTime(searchedTime);
       } catch (error) {
         console.warn(`Invalid timezone for searched location: ${location.timezone}. Defaulting to user's local time for searched location display.`);
-        const fallbackTime = new Date().toLocaleTimeString('en-US', {
+        // Fallback using local time formatting if timezone is problematic
+        const fallbackTime = now.toLocaleTimeString('en-US', {
           hour: '2-digit',
           minute: '2-digit',
+          hour12: false, // Use 24-hour format for consistency
         });
         setSearchedLocationTime(fallbackTime);
       }
 
       // Update London time
       try {
-        const londonTimeString = new Date().toLocaleTimeString('en-US', {
-          timeZone: 'Europe/London',
-          hour: '2-digit',
-          minute: '2-digit',
-        });
+        const londonTimeString = formatInTimeZone(now, 'Europe/London', 'HH:mm');
         setLondonTime(londonTimeString);
       } catch (error) {
         console.error(`Error setting London time: ${error}. This should not happen with a valid hardcoded timezone.`);
@@ -66,48 +64,50 @@ const CurrentWeatherDisplay: FC<CurrentWeatherDisplayProps> = ({ weather, locati
   const locationFullName = [location.name, location.county, location.country].filter(Boolean).join(', ');
 
   return (
-    <Card className="mb-8 shadow-xl transform hover:scale-[1.01] transition-transform duration-300">
-      <CardHeader className="text-center pb-2">
-        <CardTitle className="text-3xl font-bold">
+    <Card className="mb-8 shadow-xl transform hover:scale-[1.01] transition-transform duration-300 overflow-hidden">
+      <CardHeader className="text-center pb-3 pt-5 bg-gradient-to-br from-card/80 to-card/60">
+        <CardTitle className="text-3xl font-bold text-primary-foreground drop-shadow-sm">
           {locationFullName}
         </CardTitle>
-        <div className="text-md text-muted-foreground mt-1 space-y-0.5">
-          <div className="flex items-center justify-center space-x-1">
-            <Clock size={16} className="text-primary/80" />
+        <div className="text-sm text-primary-foreground/90 mt-2 space-y-1">
+          <div className="flex items-center justify-center space-x-1.5">
+            <Clock size={15} className="opacity-90" />
+            <span>{location.name} Time: {searchedLocationTime || 'Loading...'}</span>
+          </div>
+          <div className="flex items-center justify-center space-x-1.5">
+            <Clock size={15} className="opacity-70" />
             <span>London Time: {londonTime || 'Loading...'}</span>
           </div>
-          <div className="flex items-center justify-center space-x-1">
-            <Clock size={16} className="text-primary" />
-            <span>{location.name} Time: {searchedLocationTime || 'Loading...'}</span>
-            <span className="mx-1">&bull;</span>
-            <span>{weather.conditions}</span>
+           <div className="flex items-center justify-center space-x-1.5 pt-1">
+            <WeatherIcon condition={weather.conditions} size={16} className="opacity-90" noDefaultLabel />
+            <span className="capitalize">{weather.conditions}</span>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="flex flex-col items-center space-y-2 p-6 pt-2">
-        <div className="flex items-center space-x-4">
+      <CardContent className="flex flex-col items-center space-y-4 p-6">
+        <div className="flex items-center space-x-6">
           <WeatherIcon condition={weather.conditions} size={80} className="text-primary drop-shadow-lg" />
           <div>
-            <p className="text-7xl font-extrabold">{Math.round(weather.temperatureCelsius)}°C</p>
+            <p className="text-7xl font-extrabold tracking-tight">{Math.round(weather.temperatureCelsius)}°C</p>
             <p className="text-lg text-muted-foreground text-right -mt-1">
               Feels like {Math.round(weather.feelsLikeCelsius)}°C
             </p>
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-md text-center pt-4">
-          <div className="flex flex-col items-center p-3 bg-background/50 rounded-md">
-            <Droplets size={24} className="text-primary mb-1" />
-            <p className="font-semibold">{weather.humidity}%</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-md text-center pt-3">
+          <div className="flex flex-col items-center p-3 bg-background/60 rounded-lg shadow">
+            <Droplets size={22} className="text-primary mb-1.5" />
+            <p className="font-semibold text-md">{weather.humidity}%</p>
             <p className="text-xs text-muted-foreground">Humidity</p>
           </div>
-          <div className="flex flex-col items-center p-3 bg-background/50 rounded-md">
-            <WindIcon size={24} className="text-primary mb-1" />
-            <p className="font-semibold">{weather.windSpeed} mph</p>
+          <div className="flex flex-col items-center p-3 bg-background/60 rounded-lg shadow">
+            <WindIcon size={22} className="text-primary mb-1.5" />
+            <p className="font-semibold text-md">{weather.windSpeed} mph</p>
             <p className="text-xs text-muted-foreground">Wind</p>
           </div>
-          <div className="flex flex-col items-center p-3 bg-background/50 rounded-md">
-            <Umbrella size={24} className="text-primary mb-1" />
-            <p className="font-semibold">{weather.precipitationProbability}%</p>
+          <div className="flex flex-col items-center p-3 bg-background/60 rounded-lg shadow">
+            <Umbrella size={22} className="text-primary mb-1.5" />
+            <p className="font-semibold text-md">{weather.precipitationProbability}%</p>
             <p className="text-xs text-muted-foreground">Precip. Chance</p>
           </div>
         </div>
