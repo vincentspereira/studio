@@ -1,4 +1,9 @@
 /**
+ * @fileOverview Weather service for fetching mock weather data.
+ * All data provided by this service is for demonstration purposes and is not real-time or actual weather data.
+ */
+
+/**
  * Represents a geographical location with latitude and longitude coordinates.
  */
 export interface Location {
@@ -58,6 +63,10 @@ export interface DailyForecast {
    * The weather conditions for the day (e.g., Sunny, Cloudy, Rainy).
    */
   conditions: string;
+  /**
+   * The probability of precipitation as a percentage (0-100).
+   */
+  precipitationProbability: number;
 }
 
 /**
@@ -65,13 +74,17 @@ export interface DailyForecast {
  */
 export interface HourlyForecast {
   /**
-   * The time for the forecast (e.g., "10:00 AM").
+   * The time for the forecast (e.g., "10:00").
    */
   time: string;
   /**
    * The temperature in Celsius.
    */
   temperatureCelsius: number;
+  /**
+   * The "feels like" temperature in Celsius.
+   */
+  feelsLikeCelsius: number;
   /**
    * The weather conditions (e.g., Sunny, Cloudy, Rainy).
    */
@@ -85,57 +98,45 @@ export interface HourlyForecast {
 
 /**
  * Asynchronously retrieves current weather conditions for a given location.
- *
+ * This function returns MOCK data.
  * @param location The location for which to retrieve weather data.
  * @returns A promise that resolves to a CurrentWeather object containing current weather conditions.
  */
 export async function getCurrentWeather(location: Location): Promise<CurrentWeather> {
-  // Mock data, normally fetched from an API
-  // 75F ~ 24C
-  // Feels like 77F ~ 25C
   console.log("Fetching current weather for:", location);
   await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API delay
   return {
-    temperatureCelsius: 24,
-    feelsLikeCelsius: 25,
-    conditions: 'Partly Cloudy',
-    humidity: 60,
-    windSpeed: 5, // mph
-    precipitationProbability: 10, // 10%
+    temperatureCelsius: 24 + (Math.random() * 5 - 2.5), // Mock real temp variation
+    feelsLikeCelsius: 25 + (Math.random() * 5 - 2.5),
+    conditions: ['Partly Cloudy', 'Sunny', 'Cloudy', 'Light Rain'][Math.floor(Math.random() * 4)],
+    humidity: 50 + Math.floor(Math.random() * 30),
+    windSpeed: 3 + Math.floor(Math.random() * 7), // mph
+    precipitationProbability: Math.floor(Math.random() * 101),
   };
 }
 
 /**
  * Asynchronously retrieves a weather forecast for the next 10 days for a given location.
- *
+ * This function returns MOCK data.
  * @param location The location for which to retrieve the weather forecast.
  * @returns A promise that resolves to an array of DailyForecast objects representing the 10-day forecast.
  */
 export async function get10DayForecast(location: Location): Promise<DailyForecast[]> {
-  // Mock data, normally fetched from an API
   console.log("Fetching 10-day forecast for:", location);
   await new Promise(resolve => setTimeout(resolve, 700)); // Simulate API delay
 
-  // Example F to C conversions:
-  // 80F ~ 27C, 65F ~ 18C
-  // 78F ~ 26C, 63F ~ 17C
-  // 77F ~ 25C, 62F ~ 17C
-  // 76F ~ 24C, 61F ~ 16C
-  // 79F ~ 26C, 64F ~ 18C
-  // 81F ~ 27C, 66F ~ 19C
-  // 82F ~ 28C, 67F ~ 19C
-  const forecast: DailyForecast[] = [
-    { highTemperatureCelsius: 27, lowTemperatureCelsius: 18, conditions: 'Sunny' },
-    { highTemperatureCelsius: 26, lowTemperatureCelsius: 17, conditions: 'Sunny' },
-    { highTemperatureCelsius: 25, lowTemperatureCelsius: 17, conditions: 'Cloudy' },
-    { highTemperatureCelsius: 24, lowTemperatureCelsius: 16, conditions: 'Rainy' },
-    { highTemperatureCelsius: 26, lowTemperatureCelsius: 18, conditions: 'Sunny' },
-    { highTemperatureCelsius: 27, lowTemperatureCelsius: 19, conditions: 'Sunny' },
-    { highTemperatureCelsius: 28, lowTemperatureCelsius: 19, conditions: 'Partly Cloudy' },
-    { highTemperatureCelsius: 26, lowTemperatureCelsius: 18, conditions: 'Cloudy' },
-    { highTemperatureCelsius: 25, lowTemperatureCelsius: 17, conditions: 'Rainy' },
-    { highTemperatureCelsius: 24, lowTemperatureCelsius: 16, conditions: 'Sunny' },
-  ];
+  const conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Rainy', 'Showers', 'Thunderstorm'];
+  const forecast: DailyForecast[] = Array.from({ length: 10 }, (_, i) => {
+    const baseHigh = 20 + Math.random() * 10; // Base high temp in Celsius
+    const highTemperatureCelsius = Math.round(baseHigh + (Math.random() * 4 - 2));
+    const lowTemperatureCelsius = Math.round(highTemperatureCelsius - (5 + Math.random() * 5));
+    return {
+      highTemperatureCelsius,
+      lowTemperatureCelsius,
+      conditions: conditions[Math.floor(Math.random() * conditions.length)],
+      precipitationProbability: Math.floor(Math.random() * 101), // 0-100%
+    };
+  });
 
   return forecast;
 }
@@ -143,31 +144,44 @@ export async function get10DayForecast(location: Location): Promise<DailyForecas
 
 /**
  * Asynchronously retrieves an hourly weather forecast for a specific date and location.
+ * This function returns MOCK data.
+ * For "Today", it starts from the next full hour based on system time.
+ * For other days, it provides a full 24-hour forecast.
  *
  * @param date The date for which to retrieve the hourly forecast.
  * @param location The location for which to retrieve the weather forecast.
  * @returns A promise that resolves to an array of HourlyForecast objects.
  */
 export async function getHourlyForecast(date: Date, location: Location): Promise<HourlyForecast[]> {
-  // Mock data, normally fetched from an API
   console.log("Fetching hourly forecast for:", date.toDateString(), "at", location);
   await new Promise(resolve => setTimeout(resolve, 600)); // Simulate API delay
 
-  const conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Light Rain', 'Showers'];
-  const hourlyForecasts: HourlyForecast[] = [];
+  const conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Light Rain', 'Showers', 'Clear'];
+  let hourlyForecasts: HourlyForecast[] = [];
   const baseTemp = 15 + Math.random() * 10; // Base temperature for the day in Celsius
 
-  for (let i = 0; i < 24; i += 3) { // Forecast every 3 hours
-    const hour = i;
+  for (let hour = 0; hour < 24; hour++) {
     // Simulate temperature variation throughout the day
-    const tempVariation = Math.sin((hour / 24) * Math.PI * 2 - Math.PI / 2) * 5; // Sinusoidal variation peaking mid-day
+    const tempVariation = Math.sin((hour / 23) * Math.PI * 2 - Math.PI / 2) * 5; // Sinusoidal variation peaking mid-day
     const temperatureCelsius = Math.round(baseTemp + tempVariation + (Math.random() * 2 - 1)); // Add small random fluctuation
+    const feelsLikeCelsius = Math.round(temperatureCelsius + (Math.random() * 3 - 1.5)); // Feels like can be +/- 1.5C
     
     hourlyForecasts.push({
       time: `${hour.toString().padStart(2, '0')}:00`,
       temperatureCelsius: temperatureCelsius,
+      feelsLikeCelsius: feelsLikeCelsius,
       conditions: conditions[Math.floor(Math.random() * conditions.length)],
-      precipitationProbability: Math.floor(Math.random() * 50), // Random precip probability up to 50%
+      precipitationProbability: Math.floor(Math.random() * 101), // Random precip probability up to 100%
+    });
+  }
+
+  // If the date is today, filter out past hours
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    const currentHour = now.getHours();
+    hourlyForecasts = hourlyForecasts.filter(forecast => {
+      const forecastHour = parseInt(forecast.time.split(':')[0], 10);
+      return forecastHour > currentHour;
     });
   }
 

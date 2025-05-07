@@ -35,7 +35,7 @@ const HourlyForecastDisplay: FC<HourlyForecastDisplayProps> = ({ hourlyForecasts
           <ScrollArea className="w-full whitespace-nowrap">
             <div className="flex space-x-4 p-2">
               {hourlyForecasts.map((hour, index) => (
-                <div key={index} className="flex-shrink-0 w-32 p-3 bg-background/50 rounded-lg text-center border">
+                <div key={index} className="flex-shrink-0 w-36 p-3 bg-background/50 rounded-lg text-center border">
                   <p className="font-semibold text-sm">{hour.time}</p>
                   <div className="my-2 flex justify-center">
                     <WeatherIcon condition={hour.conditions} size={32} className="text-primary" />
@@ -44,6 +44,9 @@ const HourlyForecastDisplay: FC<HourlyForecastDisplayProps> = ({ hourlyForecasts
                     <Thermometer size={16} className="mr-1 text-muted-foreground" />
                     {Math.round(hour.temperatureCelsius)}°C
                   </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Feels like {Math.round(hour.feelsLikeCelsius)}°C
+                  </p>
                   <div className="flex items-center justify-center text-xs text-muted-foreground mt-1">
                     <Droplets size={12} className="mr-1" />
                     {hour.precipitationProbability}%
@@ -54,7 +57,7 @@ const HourlyForecastDisplay: FC<HourlyForecastDisplayProps> = ({ hourlyForecasts
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         ) : (
-          <p className="text-center text-muted-foreground py-4">No hourly data available for this day.</p>
+          <p className="text-center text-muted-foreground py-4">No hourly data available for the selected criteria (e.g., all past hours for today).</p>
         )}
       </CardContent>
     </Card>

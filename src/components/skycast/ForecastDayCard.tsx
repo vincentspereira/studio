@@ -3,6 +3,7 @@ import type { DailyForecast } from '@/services/weather';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import WeatherIcon from './WeatherIcon';
 import { format, addDays } from 'date-fns';
+import { Droplets } from 'lucide-react';
 
 interface ForecastDayCardProps {
   forecast: DailyForecast;
@@ -37,10 +38,14 @@ const ForecastDayCard: FC<ForecastDayCardProps> = ({ forecast, dayIndex, onClick
             {Math.round(forecast.highTemperatureCelsius)}°
             <span className="text-sm font-normal text-muted-foreground">HI</span>
           </p>
-          <p className="text-md text-muted-foreground">
+          <p className="text-md font-bold text-muted-foreground">
             {Math.round(forecast.lowTemperatureCelsius)}°
             <span className="text-xs font-normal">LO</span>
           </p>
+        </div>
+        <div className="flex items-center text-xs text-muted-foreground mt-1">
+          <Droplets size={14} className="mr-1 text-primary" />
+          <span>{forecast.precipitationProbability}%</span>
         </div>
         <p className="text-sm text-card-foreground/80 mt-1 capitalize">{forecast.conditions}</p>
       </CardContent>
