@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -73,6 +72,9 @@ export default function SkyCastPage() {
     try {
       const bundle = await fetchOpenWeatherDataBundle(coords);
 
+      // Values passed as arguments (name, county, country) take precedence.
+      // If not provided, fall back to values from the bundle (which come from reverse geocoding).
+      // The geocodeCity and reverseGeocode services are expected to provide correctly cased names.
       const displayLocation: DisplayLocationData = {
         lat: bundle.lat,
         lng: bundle.lng,
@@ -123,8 +125,13 @@ export default function SkyCastPage() {
         });
       } else if (geocodedResults && geocodedResults.length === 1) {
         const singleResult = geocodedResults[0];
-        // Check if result is incomplete (missing state or country)
-        if (!singleResult.state || !singleResult.country) {
+        // Check if result is incomplete (missing state or country, if city is not well-known)
+        // For very common cities like "London" without state/country, reverse geocode might fill it in,
+        // but for less common ones, it's good to prompt.
+        const isAmbiguous = (!singleResult.state || !singleResult.country) && 
+                            !["london", "paris", "tokyo", "new york"].includes(singleResult.city.toLowerCase());
+
+        if (isAmbiguous) {
           setCityToRefine(city);
           setFallbackLocationForRefine(singleResult);
           setRefineDialogOpen(true);
@@ -174,7 +181,7 @@ export default function SkyCastPage() {
     clearWeatherData();
 
     try {
-      const refinedResults = await geocodeCity(details);
+      const refinedResults = await geocodeCity(details); // geocodeCity should handle casing
       if (refinedResults && refinedResults.length === 1) {
         const refinedLoc = refinedResults[0];
         toast({
@@ -183,8 +190,7 @@ export default function SkyCastPage() {
         });
         fetchWeatherData({ lat: refinedLoc.lat, lng: refinedLoc.lng }, refinedLoc.name, refinedLoc.state, refinedLoc.country);
       } else if (refinedResults && refinedResults.length > 1) {
-         // This case can happen if refinement still leads to multiple options
-        setCityForDialog(details.city);
+        setCityForDialog(details.city); // Use the original city name for the dialog title
         setLocationOptions(refinedResults);
         setLoading(false);
         toast({
@@ -192,15 +198,25 @@ export default function SkyCastPage() {
           description: `Even with details, multiple locations match. Please select one.`,
         });
       } else {
+        // GeocodeCity with refined details didn't find a specific match.
+        // Use the user's entered textual details (city, state, country) with the fallback coordinates.
         toast({
-          variant: "destructive",
-          title: "Refinement Failed",
-          description: `Could not find a specific match for ${details.city} with the provided details. Using general information.`,
+          variant: "default", // Changed from destructive as we are attempting to use user's text
+          title: "Using Provided Details",
+          description: `Could not find an exact database match for the refined location. Displaying weather using your provided names and original coordinates.`,
         });
         if (fallbackLocationForRefine) {
-          fetchWeatherData({ lat: fallbackLocationForRefine.lat, lng: fallbackLocationForRefine.lng }, fallbackLocationForRefine.name, fallbackLocationForRefine.state, fallbackLocationForRefine.country);
+          // Pass user's entered details (details.city, details.state, details.country)
+          // These will be cased by geocodeCity if it generates them, or taken as-is from MOCK_DATA
+          fetchWeatherData(
+            { lat: fallbackLocationForRefine.lat, lng: fallbackLocationForRefine.lng },
+            details.city, 
+            details.state,
+            details.country
+          );
         } else {
-           setError(`Could not find location data for "${details.city}" even after refinement.`);
+           // This situation is less likely if refine dialog is only triggered when there's a fallback.
+           setError(`Could not find location data for "${details.city}" and no fallback coordinates available.`);
            setLoading(false);
         }
       }
@@ -213,6 +229,7 @@ export default function SkyCastPage() {
           title: "Refined Geocoding Error",
           description: errorMessage,
         });
+         // If error, fall back to the original ambiguous location if possible
          if (fallbackLocationForRefine) {
           fetchWeatherData({ lat: fallbackLocationForRefine.lat, lng: fallbackLocationForRefine.lng }, fallbackLocationForRefine.name, fallbackLocationForRefine.state, fallbackLocationForRefine.country);
         } else {
@@ -268,7 +285,7 @@ export default function SkyCastPage() {
         let toastTitle = "Geolocation Error";
         let toastDescription = `Could not get your location: ${err.message}`;
 
-        if (err.code === 1) {
+        if (err.code === 1) { // User denied permission
            toastTitle = "Location Access Denied";
            toastDescription = "You've denied permission to access your location. Please enter a city manually or enable location services.";
         }
@@ -279,10 +296,11 @@ export default function SkyCastPage() {
           description: toastDescription,
         });
 
+        // If geolocation fails and no location is active, load a default
         if (!activeDisplayLocation) { 
           toast({
              title: "Loading Default Location",
-             description: "Displaying weather for London.",
+             description: "Displaying weather for London, GB.",
           });
           handleCitySubmit("London"); 
         }
@@ -467,3 +485,4 @@ export default function SkyCastPage() {
     </div>
   );
 }
+

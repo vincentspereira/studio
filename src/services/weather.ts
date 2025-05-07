@@ -48,9 +48,13 @@ export interface GeocodedLocationQuery {
   country?: string;
 }
 
-export interface GeocodedLocation extends GeocodedLocationQuery {
-  lat: number;
-  lng: number;
+// GeocodedLocation now uses `name` for the main display city name,
+// and `city` can be the original input or matched city.
+export interface GeocodedLocation extends Location {
+  name: string; // Primary display name for the city (e.g., "New York", "London")
+  city: string; // The matched city name, can be same as name or more specific
+  state?: string;
+  country?: string;
   timezone: string;
 }
 
@@ -62,39 +66,47 @@ export interface OpenWeatherDataBundle {
   timezone: string;
   lat: number;
   lng: number;
-  locationName?: string;
+  locationName?: string; // This is the primary name from geocoding/reverse geocoding
   county?: string;
   country?: string;
 }
 
-// Helper function
-function capitalizeFirstLetter(string: string): string {
-  if (!string) return '';
-  return string.charAt(0).toUpperCase() + string.slice(1);
+// Helper function to convert string to Title Case
+function toTitleCase(str: string | undefined): string | undefined {
+  if (!str) return undefined;
+  return str.toLowerCase().split(' ').map(word => {
+    if (word.length === 0) return '';
+    // Handle cases like "US" or "UK" - keep them uppercase if they are short and all caps.
+    if (word.length <= 2 && word === word.toUpperCase()) {
+      return word;
+    }
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }).join(' ');
 }
 
-// Mock data
+
+// Mock data - ensuring Title Case for displayable names.
 const MOCK_LOCATIONS: Record<string, GeocodedLocation> = {
-  "new york": { city: "New York", lat: 40.7128, lng: -74.0060, country: "US", state: "NY", timezone: "America/New_York" },
-  "tokyo": { city: "Tokyo", lat: 35.6895, lng: 139.6917, country: "JP", state: "Tokyo", timezone: "Asia/Tokyo" },
-  "paris": { city: "Paris", lat: 48.8566, lng: 2.3522, country: "FR", state: "Île-de-France", timezone: "Europe/Paris" },
+  "new york": { name: "New York", city: "New York", lat: 40.7128, lng: -74.0060, country: "US", state: "NY", timezone: "America/New_York" },
+  "tokyo": { name: "Tokyo", city: "Tokyo", lat: 35.6895, lng: 139.6917, country: "JP", state: "Tokyo", timezone: "Asia/Tokyo" },
+  "paris": { name: "Paris", city: "Paris", lat: 48.8566, lng: 2.3522, country: "FR", state: "Île-de-France", timezone: "Europe/Paris" },
 };
 
 const MOCK_LOCATIONS_MULTI: Record<string, GeocodedLocation[]> = {
   "london": [
-    { city: "London", lat: 51.5074, lng: 0.1278, country: "GB", state: "England", timezone: "Europe/London" },
-    { city: "London", lat: 42.9849, lng: -81.2453, country: "CA", state: "ON", timezone: "America/Toronto" },
-    { city: "London", lat: 37.1280, lng: -84.0833, country: "US", state: "KY", timezone: "America/New_York" },
+    { name: "London", city: "London", lat: 51.5074, lng: 0.1278, country: "GB", state: "England", timezone: "Europe/London" },
+    { name: "London", city: "London", lat: 42.9849, lng: -81.2453, country: "CA", state: "ON", timezone: "America/Toronto" },
+    { name: "London", city: "London", lat: 37.1280, lng: -84.0833, country: "US", state: "KY", timezone: "America/New_York" },
   ],
    "springfield": [
-    { city: "Springfield", lat: 39.7817, lng: -89.6501, country: "US", state: "IL", timezone: "America/Chicago" },
-    { city: "Springfield", lat: 37.2153, lng: -93.2982, country: "US", state: "MO", timezone: "America/Chicago" },
-    { city: "Springfield", lat: 42.1015, lng: -72.5898, country: "US", state: "MA", timezone: "America/New_York" },
+    { name: "Springfield", city: "Springfield", lat: 39.7817, lng: -89.6501, country: "US", state: "IL", timezone: "America/Chicago" },
+    { name: "Springfield", city: "Springfield", lat: 37.2153, lng: -93.2982, country: "US", state: "MO", timezone: "America/Chicago" },
+    { name: "Springfield", city: "Springfield", lat: 42.1015, lng: -72.5898, country: "US", state: "MA", timezone: "America/New_York" },
   ]
 };
 
 
-const DEFAULT_LOCATION_BASE: Omit<GeocodedLocation, 'city' | 'lat' | 'lng'> = {
+const DEFAULT_LOCATION_BASE: Omit<GeocodedLocation, 'city' | 'name' | 'lat' | 'lng'> = {
   country: undefined,
   state: undefined,
   timezone: "America/Los_Angeles"
@@ -115,11 +127,21 @@ function getRandomCondition(): string {
 export async function geocodeCity(query: string | GeocodedLocationQuery): Promise<GeocodedLocation[]> {
   await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300)); // Simulate network delay
 
-  const cityName = typeof query === 'string' ? query : query.city;
-  const normalizedCityName = cityName.toLowerCase();
+  const inputCityName = typeof query === 'string' ? query : query.city;
+  const normalizedInputCityName = inputCityName.toLowerCase();
+
+  // Helper to create a result with consistent casing from mock data
+  const processMockResult = (loc: Omit<GeocodedLocation, 'name'> & {city: string}): GeocodedLocation => ({
+    ...loc,
+    name: toTitleCase(loc.city) || "Unknown", // name is for display
+    city: loc.city, // city is the matched city name
+    state: toTitleCase(loc.state),
+    country: loc.country ? loc.country.toUpperCase() : undefined, // Countries often as 2-letter codes
+  });
+
 
   if (typeof query === 'object') {
-    // Handle structured query
+    // Handle structured query (city, state, country)
     const { city, state, country } = query;
     const lcCity = city.toLowerCase();
     const lcState = state?.toLowerCase();
@@ -127,44 +149,55 @@ export async function geocodeCity(query: string | GeocodedLocationQuery): Promis
 
     let results: GeocodedLocation[] = [];
 
+    const allPossibleLocations: GeocodedLocation[] = [];
     if (MOCK_LOCATIONS_MULTI[lcCity]) {
-      results = MOCK_LOCATIONS_MULTI[lcCity].filter(loc => {
+      allPossibleLocations.push(...MOCK_LOCATIONS_MULTI[lcCity]);
+    }
+    if (MOCK_LOCATIONS[lcCity]) {
+      allPossibleLocations.push(MOCK_LOCATIONS[lcCity]);
+    }
+    
+    // Filter based on provided state and country
+    if (allPossibleLocations.length > 0) {
+        results = allPossibleLocations.filter(loc => {
         const stateMatch = !lcState || loc.state?.toLowerCase() === lcState;
         const countryMatch = !lcCountry || loc.country?.toLowerCase() === lcCountry;
         return stateMatch && countryMatch;
-      });
-    } else if (MOCK_LOCATIONS[lcCity]) {
-      const loc = MOCK_LOCATIONS[lcCity];
-      const stateMatch = !lcState || loc.state?.toLowerCase() === lcState;
-      const countryMatch = !lcCountry || loc.country?.toLowerCase() === lcCountry;
-      if (stateMatch && countryMatch) {
-        results = [{ ...loc }];
-      }
+      }).map(processMockResult);
     }
-    return results.map(loc => ({ ...loc, name: loc.city })); // Ensure 'name' field is populated like before for consistency
+    
+    // If no exact match with state/country, but we have the city, and only one entry for that city in mocks
+    // (or if state/country were not provided)
+    if (results.length === 0 && allPossibleLocations.length === 1 && !lcState && !lcCountry) {
+        results = allPossibleLocations.map(processMockResult);
+    }
+
+
+    return results;
   }
 
   // Handle string query (original logic)
-  if (MOCK_LOCATIONS_MULTI[normalizedCityName]) {
-    return MOCK_LOCATIONS_MULTI[normalizedCityName].map(loc => ({ ...loc, name: loc.city }));
+  if (MOCK_LOCATIONS_MULTI[normalizedInputCityName]) {
+    return MOCK_LOCATIONS_MULTI[normalizedInputCityName].map(processMockResult);
   }
 
-  const foundLocation = MOCK_LOCATIONS[normalizedCityName];
+  const foundLocation = MOCK_LOCATIONS[normalizedInputCityName];
   if (foundLocation) {
-    return [{ ...foundLocation, name: foundLocation.city }];
+    return [processMockResult(foundLocation)];
   }
 
-  if (cityName.toLowerCase() === "unknown" || !cityName.trim()) {
+  if (inputCityName.toLowerCase() === "unknown" || !inputCityName.trim()) {
     return []; // Simulate not found
   }
 
-  // Generic fallback for string queries only
+  // Generic fallback for string queries that don't match mocks
   return [{
     ...DEFAULT_LOCATION_BASE,
-    city: capitalizeFirstLetter(cityName),
-    name: capitalizeFirstLetter(cityName), // Keep 'name' for backward compatibility with components expecting it
+    name: toTitleCase(inputCityName) || "Unknown Location",
+    city: toTitleCase(inputCityName) || "Unknown Location",
     lat: parseFloat((Math.random() * 180 - 90).toFixed(4)),
     lng: parseFloat((Math.random() * 360 - 180).toFixed(4)),
+    // No state/country for purely random fallback
   }];
 }
 
@@ -176,10 +209,19 @@ export async function geocodeCity(query: string | GeocodedLocationQuery): Promis
 export async function reverseGeocode(coords: Location): Promise<GeocodedLocation | null> {
   await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300));
 
+  // Helper to process mock result with casing
+   const processMockResult = (loc: Omit<GeocodedLocation, 'name'> & {city: string}): GeocodedLocation => ({
+    ...loc,
+    name: toTitleCase(loc.city) || "Unknown",
+    city: loc.city,
+    state: toTitleCase(loc.state),
+    country: loc.country ? loc.country.toUpperCase() : undefined,
+  });
+
   for (const key in MOCK_LOCATIONS_MULTI) {
     for (const loc of MOCK_LOCATIONS_MULTI[key]) {
        if (Math.abs(loc.lat - coords.lat) < 0.1 && Math.abs(loc.lng - coords.lng) < 0.1) {
-         return { ...loc, name: loc.city};
+         return processMockResult(loc);
        }
     }
   }
@@ -187,16 +229,17 @@ export async function reverseGeocode(coords: Location): Promise<GeocodedLocation
   for (const key in MOCK_LOCATIONS) {
     const loc = MOCK_LOCATIONS[key];
     if (Math.abs(loc.lat - coords.lat) < 1 && Math.abs(loc.lng - coords.lng) < 1) {
-      return { ...loc, name: loc.city };
+      return processMockResult(loc);
     }
   }
+  // Fallback for "Current Location"
   return {
-    city: "My Current Location",
-    name: "My Current Location", // Keep 'name'
+    name: "Current Location",
+    city: "Current Location",
     lat: coords.lat,
     lng: coords.lng,
-    state: "Current State",
-    country: "Current Country",
+    state: toTitleCase("Current State"),
+    country: "Current Country".toUpperCase(), // Assuming 2-letter code or consistent casing
     timezone: "America/Los_Angeles"
   };
 }
@@ -213,7 +256,8 @@ export async function fetchOpenWeatherDataBundle(coords: Location): Promise<Open
 
   const geoInfo = await reverseGeocode(coords);
 
-  const locationName = geoInfo?.name || capitalizeFirstLetter("Unknown Area");
+  // locationName, county, country now come from reverseGeocode which applies casing.
+  const locationName = geoInfo?.name; // This is the primary display name
   const county = geoInfo?.state;
   const country = geoInfo?.country;
   const timezone = geoInfo?.timezone || "America/Los_Angeles";
@@ -283,6 +327,7 @@ export async function fetchOpenWeatherDataBundle(coords: Location): Promise<Open
         const tempFluctuation = -Math.cos((hourInDay - 3) * (Math.PI / 12)) * safeAmplitude;
         finalHourlyTemp = Math.round(dayMeanTemp + tempFluctuation + (Math.random() * 2 - 1));
     } else {
+        // Fallback if no daily forecast matches (should be rare with current logic)
         const tempFluctuationGlobal = Math.sin((hourInDay - 9) * (Math.PI / 12)) * 5;
         finalHourlyTemp = Math.round(baseTemp + tempFluctuationGlobal + (Math.random() * 2 - 1));
     }
@@ -309,3 +354,4 @@ export async function fetchOpenWeatherDataBundle(coords: Location): Promise<Open
     country: country,
   };
 }
+
