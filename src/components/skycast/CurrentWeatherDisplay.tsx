@@ -1,22 +1,69 @@
+
+"use client";
 import type { FC } from 'react';
+import { useState, useEffect } from 'react';
 import type { CurrentWeather } from '@/services/weather';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import WeatherIcon from './WeatherIcon';
-import { Droplets, Wind as WindIcon, Umbrella, ThermometerSun } from 'lucide-react';
+import { Droplets, Wind as WindIcon, Umbrella, Clock } from 'lucide-react';
+
+interface DisplayLocationData {
+  name: string; // City name or "Current Location"
+  county?: string;
+  country?: string;
+  timezone: string; 
+  lat: number;
+  lng: number;
+}
 
 interface CurrentWeatherDisplayProps {
   weather: CurrentWeather;
-  cityName?: string;
+  location: DisplayLocationData;
 }
 
-const CurrentWeatherDisplay: FC<CurrentWeatherDisplayProps> = ({ weather, cityName }) => {
+const CurrentWeatherDisplay: FC<CurrentWeatherDisplayProps> = ({ weather, location }) => {
+  const [currentTime, setCurrentTime] = useState<string | null>(null);
+
+  useEffect(() => {
+    const updateClock = () => {
+      try {
+        const timeString = new Date().toLocaleTimeString('en-US', {
+          timeZone: location.timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        setCurrentTime(timeString);
+      } catch (error) {
+        console.warn(`Invalid timezone: ${location.timezone}. Defaulting to local time.`);
+        // Fallback to user's local time if timezone is invalid
+         const timeString = new Date().toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        setCurrentTime(timeString);
+      }
+    };
+
+    updateClock(); // Initial call
+    const intervalId = setInterval(updateClock, 60000); // Update every minute
+
+    return () => clearInterval(intervalId);
+  }, [location.timezone]);
+
+  const locationFullName = [location.name, location.county, location.country].filter(Boolean).join(', ');
+
   return (
     <Card className="mb-8 shadow-xl transform hover:scale-[1.01] transition-transform duration-300">
       <CardHeader className="text-center pb-2">
         <CardTitle className="text-3xl font-bold">
-          {cityName || 'Current Location'}
+          {locationFullName}
         </CardTitle>
-        <CardDescription className="text-lg">{weather.conditions}</CardDescription>
+        <div className="flex items-center justify-center space-x-2 text-lg text-muted-foreground">
+           {currentTime && <Clock size={18} className="text-primary" />}
+           <span>{currentTime || 'Loading time...'}</span>
+           <span>&bull;</span>
+           <span>{weather.conditions}</span>
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col items-center space-y-2 p-6">
         <div className="flex items-center space-x-4">

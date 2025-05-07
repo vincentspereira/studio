@@ -1,9 +1,10 @@
+
 import type { FC } from 'react';
 import type { DailyForecast } from '@/services/weather';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import WeatherIcon from './WeatherIcon';
 import { format, addDays } from 'date-fns';
-import { Droplets } from 'lucide-react';
+import { Droplets, Sunrise, Sunset } from 'lucide-react';
 
 interface ForecastDayCardProps {
   forecast: DailyForecast;
@@ -27,27 +28,38 @@ const ForecastDayCard: FC<ForecastDayCardProps> = ({ forecast, dayIndex, onClick
       aria-pressed={isSelected}
       aria-label={`View hourly forecast for ${dayName}, ${fullDate}`}
     >
-      <CardHeader className="pb-2 pt-4">
+      <CardHeader className="pb-2 pt-4 w-full">
         <CardTitle className="text-lg font-semibold">{dayName}</CardTitle>
         <p className="text-xs text-muted-foreground">{fullDate}</p>
       </CardHeader>
-      <CardContent className="flex flex-col items-center justify-between flex-grow p-4">
+      <CardContent className="flex flex-col items-center justify-between flex-grow p-4 pt-0 w-full">
         <WeatherIcon condition={forecast.conditions} size={40} className="my-2 text-primary" />
         <div className="my-1">
           <p className="text-xl font-bold">
             {Math.round(forecast.highTemperatureCelsius)}°
             <span className="text-sm font-normal text-muted-foreground">HI</span>
           </p>
-          <p className="text-md font-bold text-muted-foreground">
+          <p className="text-xl font-bold text-muted-foreground"> {/* Changed text-md to text-xl */}
             {Math.round(forecast.lowTemperatureCelsius)}°
-            <span className="text-xs font-normal">LO</span>
+            <span className="text-sm font-normal">LO</span>
           </p>
         </div>
         <div className="flex items-center text-xs text-muted-foreground mt-1">
           <Droplets size={14} className="mr-1 text-primary" />
           <span>{forecast.precipitationProbability}%</span>
         </div>
-        <p className="text-sm text-card-foreground/80 mt-1 capitalize">{forecast.conditions}</p>
+        <p className="text-sm text-card-foreground/80 mt-1 capitalize truncate w-full px-1">{forecast.conditions}</p>
+        
+        <div className="text-xs text-muted-foreground mt-2 space-y-0.5 w-full">
+          <div className="flex items-center justify-center">
+            <Sunrise size={14} className="mr-1 text-amber-500" />
+            <span>{forecast.sunrise}</span>
+          </div>
+          <div className="flex items-center justify-center">
+            <Sunset size={14} className="mr-1 text-orange-600" />
+            <span>{forecast.sunset}</span>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

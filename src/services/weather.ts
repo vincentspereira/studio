@@ -1,6 +1,7 @@
 /**
  * @fileOverview Weather service for fetching mock weather data.
  * All data provided by this service is for demonstration purposes and is not real-time or actual weather data.
+ * Temperatures are in Celsius.
  */
 
 /**
@@ -45,6 +46,11 @@ export interface CurrentWeather {
    * The probability of precipitation as a percentage (0-100).
    */
   precipitationProbability: number;
+  /**
+   * The IANA timezone string for the location (e.g., "Europe/London").
+   * Optional, as it might not be available for all location sources (e.g., raw geolocation).
+   */
+  timezone?: string;
 }
 
 /**
@@ -67,6 +73,14 @@ export interface DailyForecast {
    * The probability of precipitation as a percentage (0-100).
    */
   precipitationProbability: number;
+  /**
+   * Sunrise time, e.g., "06:30".
+   */
+  sunrise: string;
+  /**
+   * Sunset time, e.g., "18:45".
+   */
+  sunset: string;
 }
 
 /**
@@ -100,18 +114,24 @@ export interface HourlyForecast {
  * Asynchronously retrieves current weather conditions for a given location.
  * This function returns MOCK data.
  * @param location The location for which to retrieve weather data.
+ * @param timezone Optional IANA timezone string.
  * @returns A promise that resolves to a CurrentWeather object containing current weather conditions.
  */
-export async function getCurrentWeather(location: Location): Promise<CurrentWeather> {
-  console.log("Fetching current weather for:", location);
+export async function getCurrentWeather(location: Location, timezone?: string): Promise<CurrentWeather> {
+  console.log("Fetching current weather for:", location, "Timezone:", timezone);
   await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API delay
+  
+  // More realistic Celsius temperatures for a temperate climate
+  const baseTemp = 10 + (Math.random() * 15); // Base temp between 10°C and 25°C
+  
   return {
-    temperatureCelsius: 24 + (Math.random() * 5 - 2.5), // Mock real temp variation
-    feelsLikeCelsius: 25 + (Math.random() * 5 - 2.5),
+    temperatureCelsius: Math.round(baseTemp + (Math.random() * 4 - 2)), // +/- 2°C variation
+    feelsLikeCelsius: Math.round(baseTemp + (Math.random() * 6 - 3)), // Feels like can vary a bit more
     conditions: ['Partly Cloudy', 'Sunny', 'Cloudy', 'Light Rain'][Math.floor(Math.random() * 4)],
-    humidity: 50 + Math.floor(Math.random() * 30),
-    windSpeed: 3 + Math.floor(Math.random() * 7), // mph
+    humidity: 40 + Math.floor(Math.random() * 50), // Humidity 40-90%
+    windSpeed: 3 + Math.floor(Math.random() * 12), // mph
     precipitationProbability: Math.floor(Math.random() * 101),
+    timezone: timezone,
   };
 }
 
@@ -127,14 +147,23 @@ export async function get10DayForecast(location: Location): Promise<DailyForecas
 
   const conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Rainy', 'Showers', 'Thunderstorm'];
   const forecast: DailyForecast[] = Array.from({ length: 10 }, (_, i) => {
-    const baseHigh = 20 + Math.random() * 10; // Base high temp in Celsius
+    const baseHigh = 12 + Math.random() * 13; // Base high temp in Celsius (12 to 25°C)
     const highTemperatureCelsius = Math.round(baseHigh + (Math.random() * 4 - 2));
-    const lowTemperatureCelsius = Math.round(highTemperatureCelsius - (5 + Math.random() * 5));
+    const lowTemperatureCelsius = Math.round(highTemperatureCelsius - (5 + Math.random() * 5)); // Low is 5-10°C lower
+    
+    // Mock sunrise/sunset times (very simplified)
+    const sunriseHour = 6 + Math.floor(Math.random()*2); // 6 or 7
+    const sunriseMinute = Math.floor(Math.random()*4) * 15; // 00, 15, 30, 45
+    const sunsetHour = 18 + Math.floor(Math.random()*3); // 18, 19, 20
+    const sunsetMinute = Math.floor(Math.random()*4) * 15;
+
     return {
       highTemperatureCelsius,
       lowTemperatureCelsius,
       conditions: conditions[Math.floor(Math.random() * conditions.length)],
       precipitationProbability: Math.floor(Math.random() * 101), // 0-100%
+      sunrise: `${sunriseHour.toString().padStart(2, '0')}:${sunriseMinute.toString().padStart(2, '0')}`,
+      sunset: `${sunsetHour.toString().padStart(2, '0')}:${sunsetMinute.toString().padStart(2, '0')}`,
     };
   });
 
@@ -158,7 +187,8 @@ export async function getHourlyForecast(date: Date, location: Location): Promise
 
   const conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Light Rain', 'Showers', 'Clear'];
   let hourlyForecasts: HourlyForecast[] = [];
-  const baseTemp = 15 + Math.random() * 10; // Base temperature for the day in Celsius
+  // Base temperature for the day, adjusted for Celsius
+  const baseTemp = 8 + Math.random() * 12; // Base temp for the day between 8°C and 20°C
 
   for (let hour = 0; hour < 24; hour++) {
     // Simulate temperature variation throughout the day
@@ -175,13 +205,13 @@ export async function getHourlyForecast(date: Date, location: Location): Promise
     });
   }
 
-  // If the date is today, filter out past hours
+  // If the date is today, filter out past hours and the current hour
   const now = new Date();
   if (date.toDateString() === now.toDateString()) {
-    const currentHour = now.getHours();
+    const nextFullHour = now.getHours() + 1; // Start from the next full hour
     hourlyForecasts = hourlyForecasts.filter(forecast => {
       const forecastHour = parseInt(forecast.time.split(':')[0], 10);
-      return forecastHour > currentHour;
+      return forecastHour >= nextFullHour;
     });
   }
 

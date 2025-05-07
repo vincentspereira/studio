@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -11,7 +12,22 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const MOCK_GEOCODING: Record<string, Location> = {
+interface DisplayLocationData extends Location {
+  name: string; // City name or "Current Location"
+  county?: string;
+  country?: string;
+  timezone: string; 
+}
+
+const MOCK_LOCATIONS_DATA: Record<string, Omit<DisplayLocationData, 'lat' | 'lng'>> = {
+  "london": { name: "London", county: "Greater London", country: "United Kingdom", timezone: "Europe/London" },
+  "new york": { name: "New York", county: "New York County", country: "USA", timezone: "America/New_York" },
+  "tokyo": { name: "Tokyo", county: "Tokyo Metropolis", country: "Japan", timezone: "Asia/Tokyo" },
+  "paris": { name: "Paris", county: "Île-de-France", country: "France", timezone: "Europe/Paris" },
+  "berlin": { name: "Berlin", county: "Berlin", country: "Germany", timezone: "Europe/Berlin" },
+};
+
+const MOCK_GEOCODING_COORDS: Record<string, Location> = {
   "london": { lat: 51.5074, lng: -0.1278 },
   "new york": { lat: 40.7128, lng: -74.0060 },
   "tokyo": { lat: 35.6895, lng: 139.6917 },
@@ -19,9 +35,9 @@ const MOCK_GEOCODING: Record<string, Location> = {
   "berlin": { lat: 52.5200, lng: 13.4050 },
 };
 
+
 export default function SkyCastPage() {
-  const [locationName, setLocationName] = useState<string | undefined>(undefined);
-  const [activeLocation, setActiveLocation] = useState<Location | null>(null);
+  const [activeDisplayLocation, setActiveDisplayLocation] = useState<DisplayLocationData | null>(null);
   const [currentWeather, setCurrentWeather] = useState<CurrentWeather | null>(null);
   const [forecast, setForecast] = useState<DailyForecast[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,27 +51,26 @@ export default function SkyCastPage() {
 
   const { toast } = useToast();
 
-  const fetchWeatherData = useCallback(async (location: Location, name?: string) => {
+  const fetchWeatherData = useCallback(async (coords: Location, displayInfo: DisplayLocationData) => {
     setLoading(true);
     setError(null);
     setCurrentWeather(null);
     setForecast(null);
-    setHourlyForecasts(null); // Reset hourly forecast when new main weather data is fetched
+    setHourlyForecasts(null); 
     setSelectedDayForecast(null);
     setSelectedDate(null);
-    setActiveLocation(location);
+    setActiveDisplayLocation(displayInfo);
 
     try {
       const [current, dailyForecast] = await Promise.all([
-        getCurrentWeather(location),
-        get10DayForecast(location),
+        getCurrentWeather(coords, displayInfo.timezone),
+        get10DayForecast(coords),
       ]);
       setCurrentWeather(current);
       setForecast(dailyForecast);
-      setLocationName(name || 'Current Location');
       toast({
         title: "Weather Updated",
-        description: `Displaying weather for ${name || 'your current location'}.`,
+        description: `Displaying weather for ${displayInfo.name}.`,
       });
     } catch (err) {
       console.error("Failed to fetch weather data:", err);
@@ -73,15 +88,24 @@ export default function SkyCastPage() {
 
   const handleCitySubmit = (city: string) => {
     const locationKey = city.toLowerCase();
-    const location = MOCK_GEOCODING[locationKey];
-    if (location) {
-      fetchWeatherData(location, city.charAt(0).toUpperCase() + city.slice(1));
+    const coords = MOCK_GEOCODING_COORDS[locationKey];
+    const displayDetails = MOCK_LOCATIONS_DATA[locationKey];
+
+    if (coords && displayDetails) {
+      const fullDisplayLocation: DisplayLocationData = {
+        ...coords,
+        name: city.charAt(0).toUpperCase() + city.slice(1),
+        county: displayDetails.county,
+        country: displayDetails.country,
+        timezone: displayDetails.timezone,
+      };
+      fetchWeatherData(coords, fullDisplayLocation);
     } else {
-      setError(`Could not find coordinates for "${city}". Please try a known city (e.g., London, New York) or use geolocation.`);
+      setError(`Could not find full data for "${city}". Please try a known city (e.g., London, New York) or use geolocation.`);
       toast({
         variant: "destructive",
         title: "Location Not Found",
-        description: `We don't have coordinates for "${city}" in our demo. Try "London" or use geolocation.`,
+        description: `We don't have data for "${city}" in our demo. Try "London" or use geolocation.`,
       });
     }
   };
@@ -102,7 +126,13 @@ export default function SkyCastPage() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-        fetchWeatherData({ lat: latitude, lng: longitude });
+        const coords = { lat: latitude, lng: longitude };
+        const displayInfo: DisplayLocationData = {
+          ...coords,
+          name: "Current Location",
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, // User's local timezone
+        };
+        fetchWeatherData(coords, displayInfo);
       },
       (err) => {
         setError(`Geolocation error: ${err.message}`);
@@ -117,7 +147,6 @@ export default function SkyCastPage() {
   };
 
   const handleDayCardClick = useCallback(async (dayForecast: DailyForecast, date: Date) => {
-    // If the same day is clicked again, hide the hourly forecast
     if (selectedDate && selectedDate.toDateString() === date.toDateString()) {
         setSelectedDayForecast(null);
         setSelectedDate(null);
@@ -128,11 +157,11 @@ export default function SkyCastPage() {
 
     setSelectedDayForecast(dayForecast);
     setSelectedDate(date);
-    setHourlyForecasts(null); // Clear previous hourly data
+    setHourlyForecasts(null); 
     setLoadingHourly(true);
     setErrorHourly(null);
 
-    if (!activeLocation) {
+    if (!activeDisplayLocation) {
       setErrorHourly("Location data is not available to fetch hourly forecast.");
       setLoadingHourly(false);
       toast({ variant: "destructive", title: "Error", description: "Location data missing for hourly forecast." });
@@ -140,7 +169,9 @@ export default function SkyCastPage() {
     }
 
     try {
-      const hourly = await getHourlyForecast(date, activeLocation);
+      // Pass only lat/lng for the API call, as the service only expects Location type
+      const coordsForApi: Location = { lat: activeDisplayLocation.lat, lng: activeDisplayLocation.lng };
+      const hourly = await getHourlyForecast(date, coordsForApi);
       setHourlyForecasts(hourly);
     } catch (err) {
       console.error("Failed to fetch hourly forecast:", err);
@@ -150,9 +181,10 @@ export default function SkyCastPage() {
     } finally {
       setLoadingHourly(false);
     }
-  }, [activeLocation, toast, selectedDate]);
+  }, [activeDisplayLocation, toast, selectedDate]);
   
   useEffect(() => {
+    // Load London by default
     handleCitySubmit("London");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -187,9 +219,9 @@ export default function SkyCastPage() {
           </Alert>
         )}
 
-        {!loading && currentWeather && forecast && (
+        {!loading && currentWeather && forecast && activeDisplayLocation && (
           <div className="space-y-10 animate-fadeIn">
-            <CurrentWeatherDisplay weather={currentWeather} cityName={locationName} />
+            <CurrentWeatherDisplay weather={currentWeather} location={activeDisplayLocation} />
             <ForecastDisplay 
               forecasts={forecast} 
               onDayClick={handleDayCardClick}
@@ -240,7 +272,10 @@ export default function SkyCastPage() {
       </main>
        <footer className="text-center mt-12 py-6 border-t">
         <p className="text-sm text-muted-foreground">
-          SkyCast &copy; {new Date().getFullYear()}. Weather data is for demonstration purposes.
+          SkyCast &copy; {new Date().getFullYear()}. Weather data is for demonstration purposes only.
+        </p>
+        <p className="text-xs text-muted-foreground/70 mt-1">
+          Weather data provided by Mock Weather API. Not for actual use.
         </p>
       </footer>
     </div>
