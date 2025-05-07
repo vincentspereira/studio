@@ -131,7 +131,7 @@ export async function reverseGeocode(coords: Location): Promise<GeocodedLocation
   for (const key in MOCK_LOCATIONS) {
     const loc = MOCK_LOCATIONS[key];
     if (Math.abs(loc.lat - coords.lat) < 5 && Math.abs(loc.lng - coords.lng) < 5) { // Increased tolerance for mock
-      return { ...loc, name: `${loc.name}` }; // Return a copy, removed (Current Vicinity)
+      return { ...loc, name: `${loc.name}` }; // Return a copy
     }
   }
   // Default for current location if no mock is "close"
@@ -141,9 +141,10 @@ export async function reverseGeocode(coords: Location): Promise<GeocodedLocation
     lat: coords.lat, 
     lng: coords.lng,
     state: "Current State" // Keeping state for consistency with GeocodedLocation
-    // county is not directly part of GeocodedLocation, it's derived in page.tsx
   };
 }
+
+const NUM_DAYS_FORECAST = 8; // Number of days for daily and hourly forecasts
 
 /**
  * Generates a sample weather data bundle.
@@ -154,41 +155,38 @@ export async function reverseGeocode(coords: Location): Promise<GeocodedLocation
 export async function fetchOpenWeatherDataBundle(coords: Location): Promise<OpenWeatherDataBundle> {
   await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 500)); // Simulate network delay
 
-  // Use mock reverse geocode to get location details including timezone
   const geoInfo = await reverseGeocode(coords);
 
   const locationName = geoInfo?.name || DEFAULT_LOCATION.name;
-  const county = geoInfo?.state; // GeocodedLocation has 'state', which we use as 'county'
+  const county = geoInfo?.state; 
   const country = geoInfo?.country || DEFAULT_LOCATION.country;
   const timezone = geoInfo?.timezone || DEFAULT_LOCATION.timezone;
   
-  const baseTemp = 5 + Math.random() * 20; // Base temperature for the day (5-25°C)
+  const baseTemp = 5 + Math.random() * 20; 
 
   const current: CurrentWeather = {
     temperatureCelsius: Math.round(baseTemp + (Math.random() * 6 - 3)),
-    feelsLikeCelsius: Math.round(baseTemp + (Math.random() * 8 - 4)), // FeelsLike can vary more
+    feelsLikeCelsius: Math.round(baseTemp + (Math.random() * 8 - 4)),
     conditions: getRandomCondition(),
-    humidity: Math.floor(30 + Math.random() * 60), // 30-90%
-    windSpeed: Math.floor(2 + Math.random() * 28), // 2-30 mph
-    precipitationProbability: Math.floor(Math.random() * 101), // 0-100%
+    humidity: Math.floor(30 + Math.random() * 60), 
+    windSpeed: Math.floor(2 + Math.random() * 28), 
+    precipitationProbability: Math.floor(Math.random() * 101),
     timezone: timezone,
   };
 
   const daily: DailyForecast[] = [];
   const today = new Date();
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < NUM_DAYS_FORECAST; i++) {
     const forecastDate = new Date(today);
     forecastDate.setDate(today.getDate() + i);
-    const dayBaseTemp = baseTemp + (Math.random() * 6 - 3); // Slight variation per day
+    const dayBaseTemp = baseTemp + (Math.random() * 6 - 3); 
     
-    // Ensure low is lower than high
     let low = Math.round(dayBaseTemp - 2 - Math.random() * 5);
     let high = Math.round(dayBaseTemp + 2 + Math.random() * 5);
     if (low >= high) low = high - Math.floor(1 + Math.random() * 3);
 
-
     daily.push({
-      date: new Date(forecastDate), // Ensure a new Date object
+      date: new Date(forecastDate), 
       highTemperatureCelsius: high,
       lowTemperatureCelsius: low,
       conditions: getRandomCondition(),
@@ -200,25 +198,48 @@ export async function fetchOpenWeatherDataBundle(coords: Location): Promise<Open
   
   const hourly: HourlyForecast[] = [];
   const firstHourDate = new Date(); 
-  firstHourDate.setMinutes(0,0,0); // Align to the start of the current hour in system time
+  firstHourDate.setMinutes(0,0,0); 
 
-  for (let i = 0; i < 48; i++) { // Generate 48 hours of forecast
+  const TOTAL_HOURS_FORECAST = NUM_DAYS_FORECAST * 24;
+
+  for (let i = 0; i < TOTAL_HOURS_FORECAST; i++) { 
     const hourDateTime = new Date(firstHourDate);
     hourDateTime.setHours(firstHourDate.getHours() + i);
     
-    // Simulate diurnal temperature variation
-    const hourInDay = hourDateTime.getHours(); // Hour in the day (0-23) in system time
-    let tempFluctuation = Math.sin((hourInDay - 9) * (Math.PI / 12)) * 5; // Peaking around 3 PM (15:00), min around 3 AM
-    
-    const hourlyTemp = Math.round(baseTemp + tempFluctuation + (Math.random() * 2 - 1));
+    const hourInDay = hourDateTime.getHours(); 
+
+    let dayMatch: DailyForecast | undefined = undefined;
+    for(const dayF of daily) {
+        const dDate = dayF.date;
+        if (hourDateTime.getFullYear() === dDate.getFullYear() &&
+            hourDateTime.getMonth() === dDate.getMonth() &&
+            hourDateTime.getDate() === dDate.getDate()) {
+            dayMatch = dayF;
+            break;
+        }
+    }
+
+    let finalHourlyTemp: number;
+    if (dayMatch) {
+        const dayMeanTemp = (dayMatch.highTemperatureCelsius + dayMatch.lowTemperatureCelsius) / 2;
+        const dayAmplitude = (dayMatch.highTemperatureCelsius - dayMatch.lowTemperatureCelsius) / 2;
+        const safeAmplitude = Math.max(1, dayAmplitude); // Ensure some variation even if high=low
+        // Sinusoidal fluctuation: min around 3 AM, max around 3 PM (15:00)
+        const tempFluctuation = -Math.cos((hourInDay - 3) * (Math.PI / 12)) * safeAmplitude;
+        finalHourlyTemp = Math.round(dayMeanTemp + tempFluctuation + (Math.random() * 2 - 1)); // Add small noise
+    } else {
+        // Fallback: if no matching day forecast (e.g. if hourly extends beyond daily, though configured not to)
+        const tempFluctuationGlobal = Math.sin((hourInDay - 9) * (Math.PI / 12)) * 5;
+        finalHourlyTemp = Math.round(baseTemp + tempFluctuationGlobal + (Math.random() * 2 - 1));
+    }
 
     hourly.push({
-      time: formatInTimeZone(hourDateTime, timezone, 'HH:00'), // Display time in location's timezone
-      temperatureCelsius: hourlyTemp,
-      feelsLikeCelsius: Math.round(hourlyTemp - (Math.random() * 4 - 1)), // Feels like can be bit different
-      conditions: getRandomCondition(),
-      precipitationProbability: Math.floor(Math.random() * 71), // 0-70% for hourly
-      dateTime: new Date(hourDateTime), // Store the full Date object (it's in system time, but corresponds to the 'time' in location's tz)
+      time: formatInTimeZone(hourDateTime, timezone, 'HH:00'), 
+      temperatureCelsius: finalHourlyTemp,
+      feelsLikeCelsius: Math.round(finalHourlyTemp - (Math.random() * 4 - 1)), 
+      conditions: getRandomCondition(), 
+      precipitationProbability: Math.floor(Math.random() * 71), 
+      dateTime: new Date(hourDateTime), 
     });
   }
 
@@ -230,7 +251,7 @@ export async function fetchOpenWeatherDataBundle(coords: Location): Promise<Open
     lat: coords.lat,
     lng: coords.lng,
     locationName: locationName,
-    county: county, // Pass county (derived from state)
-    country: country, // Pass country
+    county: county, 
+    country: country, 
   };
 }
