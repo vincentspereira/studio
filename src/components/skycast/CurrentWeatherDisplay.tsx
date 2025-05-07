@@ -1,3 +1,4 @@
+
 "use client";
 import type { FC } from 'react';
 import { useState, useEffect } from 'react';
@@ -66,10 +67,10 @@ const CurrentWeatherDisplay: FC<CurrentWeatherDisplayProps> = ({ weather, locati
   return (
     <Card className="mb-8 shadow-xl transform hover:scale-[1.01] transition-transform duration-300 overflow-hidden">
       <CardHeader className="text-center pb-3 pt-5 bg-gradient-to-br from-card/80 to-card/60">
-        <CardTitle className="text-3xl font-bold text-primary-foreground drop-shadow-sm">
+        <CardTitle className="text-3xl font-bold text-card-foreground drop-shadow-sm">
           {locationFullName}
         </CardTitle>
-        <div className="text-sm text-primary-foreground/90 mt-2 space-y-1">
+        <div className="text-sm text-card-foreground/90 mt-2 space-y-1">
           <div className="flex items-center justify-center space-x-1.5">
             <Clock size={15} className="opacity-90" />
             <span>{location.name} Time: {searchedLocationTime || 'Loading...'}</span>
