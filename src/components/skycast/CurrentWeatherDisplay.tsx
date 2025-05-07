@@ -2,7 +2,7 @@ import type { FC } from 'react';
 import type { CurrentWeather } from '@/services/weather';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import WeatherIcon from './WeatherIcon';
-import { Droplets, Wind as WindIcon, Umbrella } from 'lucide-react';
+import { Droplets, Wind as WindIcon, Umbrella, ThermometerSun } from 'lucide-react';
 
 interface CurrentWeatherDisplayProps {
   weather: CurrentWeather;
@@ -18,12 +18,17 @@ const CurrentWeatherDisplay: FC<CurrentWeatherDisplayProps> = ({ weather, cityNa
         </CardTitle>
         <CardDescription className="text-lg">{weather.conditions}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col items-center space-y-6 p-6">
+      <CardContent className="flex flex-col items-center space-y-2 p-6">
         <div className="flex items-center space-x-4">
           <WeatherIcon condition={weather.conditions} size={80} className="text-primary drop-shadow-lg" />
-          <p className="text-7xl font-extrabold">{Math.round(weather.temperatureFarenheit)}°F</p>
+          <div>
+            <p className="text-7xl font-extrabold">{Math.round(weather.temperatureCelsius)}°C</p>
+            <p className="text-lg text-muted-foreground text-right -mt-1">
+              Feels like {Math.round(weather.feelsLikeCelsius)}°C
+            </p>
+          </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-md text-center">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-md text-center pt-4">
           <div className="flex flex-col items-center p-3 bg-background/50 rounded-md">
             <Droplets size={24} className="text-primary mb-1" />
             <p className="font-semibold">{weather.humidity}%</p>
@@ -36,8 +41,8 @@ const CurrentWeatherDisplay: FC<CurrentWeatherDisplayProps> = ({ weather, cityNa
           </div>
           <div className="flex flex-col items-center p-3 bg-background/50 rounded-md">
             <Umbrella size={24} className="text-primary mb-1" />
-            <p className="font-semibold">{weather.precipitation}"</p>
-            <p className="text-xs text-muted-foreground">Precipitation</p>
+            <p className="font-semibold">{weather.precipitationProbability}%</p>
+            <p className="text-xs text-muted-foreground">Precip. Chance</p>
           </div>
         </div>
       </CardContent>

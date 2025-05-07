@@ -1,16 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Location, CurrentWeather, DailyForecast } from '@/services/weather';
-import { getCurrentWeather, get10DayForecast } from '@/services/weather';
+import type { Location, CurrentWeather, DailyForecast, HourlyForecast } from '@/services/weather';
+import { getCurrentWeather, get10DayForecast, getHourlyForecast } from '@/services/weather';
 import LocationInput from '@/components/skycast/LocationInput';
 import CurrentWeatherDisplay from '@/components/skycast/CurrentWeatherDisplay';
 import ForecastDisplay from '@/components/skycast/ForecastDisplay';
+import HourlyForecastDisplay from '@/components/skycast/HourlyForecastDisplay';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-// Mock geocoding for specific cities
 const MOCK_GEOCODING: Record<string, Location> = {
   "london": { lat: 51.5074, lng: -0.1278 },
   "new york": { lat: 40.7128, lng: -74.0060 },
@@ -21,10 +21,18 @@ const MOCK_GEOCODING: Record<string, Location> = {
 
 export default function SkyCastPage() {
   const [locationName, setLocationName] = useState<string | undefined>(undefined);
+  const [activeLocation, setActiveLocation] = useState<Location | null>(null);
   const [currentWeather, setCurrentWeather] = useState<CurrentWeather | null>(null);
   const [forecast, setForecast] = useState<DailyForecast[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  const [selectedDayForecast, setSelectedDayForecast] = useState<DailyForecast | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [hourlyForecasts, setHourlyForecasts] = useState<HourlyForecast[] | null>(null);
+  const [loadingHourly, setLoadingHourly] = useState(false);
+  const [errorHourly, setErrorHourly] = useState<string | null>(null);
+
   const { toast } = useToast();
 
   const fetchWeatherData = useCallback(async (location: Location, name?: string) => {
@@ -32,6 +40,11 @@ export default function SkyCastPage() {
     setError(null);
     setCurrentWeather(null);
     setForecast(null);
+    setHourlyForecasts(null); // Reset hourly forecast when new main weather data is fetched
+    setSelectedDayForecast(null);
+    setSelectedDate(null);
+    setActiveLocation(location);
+
     try {
       const [current, dailyForecast] = await Promise.all([
         getCurrentWeather(location),
@@ -59,7 +72,8 @@ export default function SkyCastPage() {
   }, [toast]);
 
   const handleCitySubmit = (city: string) => {
-    const location = MOCK_GEOCODING[city.toLowerCase()];
+    const locationKey = city.toLowerCase();
+    const location = MOCK_GEOCODING[locationKey];
     if (location) {
       fetchWeatherData(location, city.charAt(0).toUpperCase() + city.slice(1));
     } else {
@@ -101,8 +115,43 @@ export default function SkyCastPage() {
       }
     );
   };
+
+  const handleDayCardClick = useCallback(async (dayForecast: DailyForecast, date: Date) => {
+    // If the same day is clicked again, hide the hourly forecast
+    if (selectedDate && selectedDate.toDateString() === date.toDateString()) {
+        setSelectedDayForecast(null);
+        setSelectedDate(null);
+        setHourlyForecasts(null);
+        setErrorHourly(null);
+        return;
+    }
+
+    setSelectedDayForecast(dayForecast);
+    setSelectedDate(date);
+    setHourlyForecasts(null); // Clear previous hourly data
+    setLoadingHourly(true);
+    setErrorHourly(null);
+
+    if (!activeLocation) {
+      setErrorHourly("Location data is not available to fetch hourly forecast.");
+      setLoadingHourly(false);
+      toast({ variant: "destructive", title: "Error", description: "Location data missing for hourly forecast." });
+      return;
+    }
+
+    try {
+      const hourly = await getHourlyForecast(date, activeLocation);
+      setHourlyForecasts(hourly);
+    } catch (err) {
+      console.error("Failed to fetch hourly forecast:", err);
+      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred";
+      setErrorHourly(`Failed to fetch hourly forecast: ${errorMessage}`);
+      toast({ variant: "destructive", title: "Hourly Forecast Error", description: errorMessage });
+    } finally {
+      setLoadingHourly(false);
+    }
+  }, [activeLocation, toast, selectedDate]);
   
-  // Fetch weather for a default location on initial load (e.g., London)
   useEffect(() => {
     handleCitySubmit("London");
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -141,9 +190,44 @@ export default function SkyCastPage() {
         {!loading && currentWeather && forecast && (
           <div className="space-y-10 animate-fadeIn">
             <CurrentWeatherDisplay weather={currentWeather} cityName={locationName} />
-            <ForecastDisplay forecasts={forecast} />
+            <ForecastDisplay 
+              forecasts={forecast} 
+              onDayClick={handleDayCardClick}
+              selectedDate={selectedDate}
+            />
           </div>
         )}
+
+        {loadingHourly && (
+          <div className="flex flex-col items-center justify-center my-10 p-6 bg-card/50 rounded-lg shadow-md">
+            <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
+            <p className="text-md text-card-foreground">Fetching hourly forecast...</p>
+          </div>
+        )}
+
+        {errorHourly && !loadingHourly && (
+           <Alert variant="destructive" className="my-8 shadow-md">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Hourly Forecast Error</AlertTitle>
+            <AlertDescription>{errorHourly}</AlertDescription>
+          </Alert>
+        )}
+        
+        {!loadingHourly && hourlyForecasts && selectedDayForecast && selectedDate && (
+          <div className="my-10 animate-fadeIn">
+            <HourlyForecastDisplay 
+              hourlyForecasts={hourlyForecasts} 
+              selectedDay={selectedDayForecast} 
+              selectedDate={selectedDate}
+              onClose={() => {
+                setHourlyForecasts(null);
+                setSelectedDayForecast(null);
+                setSelectedDate(null);
+              }}
+            />
+          </div>
+        )}
+
          <style jsx global>{`
           @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
