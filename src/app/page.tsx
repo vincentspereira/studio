@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -138,21 +137,25 @@ export default function SkyCastPage() {
       async (position) => {
         const { latitude, longitude } = position.coords;
         const coords = { lat: latitude, lng: longitude };
-        
-        // fetchOpenWeatherDataBundle will internally call mock reverseGeocode
-        // so we don't strictly need to pass name/county/country here,
-        // but it can be good for immediate UI feedback or if the bundle call fails partially.
-        // For simplicity with mock, we can let bundle handle it.
         fetchWeatherData(coords, "Current Location");
       },
       (err) => {
-        setError(`Geolocation error: ${err.message}`);
-        toast({
-          variant: "destructive",
-          title: "Geolocation Error",
-          description: `Could not get your location: ${err.message}`,
-        });
-        setLoading(false);
+        setLoading(false); // Set loading to false in all error paths
+        if (err.code === 1) { // PERMISSION_DENIED
+          setError(`Geolocation error: ${err.message}.`); // Keep the error state for the banner
+          toast({
+            // Default variant is fine for informational messages
+            title: "Location Access Denied",
+            description: "You've denied permission to access your location. Displaying weather for the current/default city.",
+          });
+        } else {
+          setError(`Geolocation error: ${err.message}`);
+          toast({
+            variant: "destructive",
+            title: "Geolocation Error",
+            description: `Could not get your location: ${err.message}`,
+          });
+        }
       }
     );
   };
@@ -309,4 +312,3 @@ export default function SkyCastPage() {
     </div>
   );
 }
-
